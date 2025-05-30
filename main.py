@@ -26,6 +26,12 @@ AWS_ICONS = ["EC2", "S3", "VPC", "Lambda", "EBS", "RDS", "IAM", "DynamoDB", "API
 class AWSIcon(pygame.sprite.Sprite):
     """AWSサービスアイコンを表すクラス"""
     
+    # 衝突と重なりに関する定数
+    OVERLAP_THRESHOLD = 30  # 重なりすぎと判断する閾値（ピクセル）
+    SEPARATION_FORCE = 0.5  # 分離力の基本強度
+    STUCK_THRESHOLD = 60    # スタック状態と判断するフレーム数
+    STUCK_FORCE_MULTIPLIER = 2.0  # スタック状態での分離力の倍率
+    
     def __init__(self, service_type, position, velocity=None):
         super().__init__()
         self.service_type = service_type
@@ -96,6 +102,11 @@ class AWSIcon(pygame.sprite.Sprite):
         self.is_stopped = False
         self.stop_timer = 0
         self.max_stop_time = 120  # 最大停止時間（フレーム数）
+        
+        # 重なり状態の管理
+        self.overlapping_icons = {}  # {icon_id: icon} 形式で重なっているアイコンを追跡
+        self.overlap_duration = {}   # {icon_id: frames} 形式で重なり継続フレーム数を追跡
+        self.stuck = False           # スタック状態のフラグ
     
     def _set_dependencies(self):
         """サービスの依存関係を設定"""
@@ -110,6 +121,80 @@ class AWSIcon(pygame.sprite.Sprite):
         elif self.service_type == "CloudFront":
             return ["S3"]
         return []
+        
+    def _handle_overlap(self, other_icon):
+        """重なっているアイコンとの分離を処理する"""
+        # 重なりの度合いを計算
+        dx = self.rect.centerx - other_icon.rect.centerx
+        dy = self.rect.centery - other_icon.rect.centery
+        distance = math.sqrt(dx*dx + dy*dy)
+        
+        # アイコンの半径（簡易的に幅の半分を使用）
+        radius = self.rect.width / 2
+        
+        # 重なりの度合いを計算（0なら完全に重なっている、radius*2なら接している）
+        overlap = max(0, radius * 2 - distance)
+        
+        # 重なりが閾値を超えている場合、分離力を適用
+        if overlap > self.OVERLAP_THRESHOLD:
+            # 他のアイコンのIDを取得（Pythonのオブジェクトのidを使用）
+            other_id = id(other_icon)
+            
+            # 重なり状態を記録
+            if other_id not in self.overlapping_icons:
+                self.overlapping_icons[other_id] = other_icon
+                self.overlap_duration[other_id] = 0
+            else:
+                self.overlap_duration[other_id] += 1
+            
+            # スタック状態の判定
+            is_stuck = self.overlap_duration[other_id] > self.STUCK_THRESHOLD
+            
+            # 分離力の計算（重なりが大きいほど強い力を適用）
+            force_magnitude = self.SEPARATION_FORCE * (overlap / radius)
+            
+            # スタック状態の場合、より強い分離力を適用
+            if is_stuck:
+                force_magnitude *= self.STUCK_FORCE_MULTIPLIER
+                self.stuck = True
+            
+            # 方向ベクトルの計算（自分から相手への方向）
+            if distance > 0:  # 0除算を防ぐ
+                direction_x = dx / distance
+                direction_y = dy / distance
+            else:
+                # 完全に重なっている場合はランダムな方向に分離
+                angle = random.uniform(0, 2 * math.pi)
+                direction_x = math.cos(angle)
+                direction_y = math.sin(angle)
+            
+            # 分離力を適用（自分は相手から離れる方向、相手は自分から離れる方向）
+            self.velocity[0] += direction_x * force_magnitude
+            self.velocity[1] += direction_y * force_magnitude
+            other_icon.velocity[0] -= direction_x * force_magnitude
+            other_icon.velocity[1] -= direction_y * force_magnitude
+            
+            # スタック状態を脱するためのランダム要素を追加
+            if is_stuck:
+                random_angle = random.uniform(0, 2 * math.pi)
+                random_force = random.uniform(0.1, 0.5)
+                self.velocity[0] += math.cos(random_angle) * random_force
+                self.velocity[1] += math.sin(random_angle) * random_force
+                
+                random_angle = random.uniform(0, 2 * math.pi)
+                random_force = random.uniform(0.1, 0.5)
+                other_icon.velocity[0] += math.cos(random_angle) * random_force
+                other_icon.velocity[1] += math.sin(random_angle) * random_force
+        else:
+            # 重なりが閾値以下の場合、重なり状態をリセット
+            other_id = id(other_icon)
+            if other_id in self.overlapping_icons:
+                del self.overlapping_icons[other_id]
+                del self.overlap_duration[other_id]
+                
+                # すべての重なりが解消されたらスタック状態をリセット
+                if not self.overlapping_icons:
+                    self.stuck = False
     
     def update(self, all_icons=None):
         """アイコンの状態を更新"""
@@ -152,6 +237,12 @@ class AWSIcon(pygame.sprite.Sprite):
         # ゲームエリア内に収める
         self.rect.left = max(0, min(self.rect.left, GAME_AREA_WIDTH - self.rect.width))
         self.rect.top = max(0, min(self.rect.top, SCREEN_HEIGHT - self.rect.height))
+        
+        # 重なっているアイコンとの分離処理
+        if all_icons:
+            for icon in all_icons:
+                if icon != self and pygame.sprite.collide_rect(self, icon):
+                    self._handle_overlap(icon)
         
         # 依存関係の確認と体力の更新
         if all_icons and self.dependencies:
@@ -389,6 +480,10 @@ class AWSIcon(pygame.sprite.Sprite):
         # 選択状態の表示
         if self.selected:
             pygame.draw.rect(surface, (255, 255, 0), self.rect.inflate(4, 4), 2)
+        
+        # スタック状態の視覚化（デバッグ用）
+        if self.stuck:
+            pygame.draw.rect(surface, (255, 0, 255), self.rect.inflate(8, 8), 1)  # マゼンタの枠
         
         # 依存関係の視覚化
         if self.dependencies:
@@ -649,9 +744,16 @@ class Game:
         for i, icon1 in enumerate(icons):
             for icon2 in icons[i+1:]:
                 if pygame.sprite.collide_rect(icon1, icon2):
-                    # 衝突時の反応（単純な反射）
+                    # 衝突時の反応（速度交換に加えて、少しランダム性を追加）
                     icon1.velocity[0], icon2.velocity[0] = icon2.velocity[0], icon1.velocity[0]
                     icon1.velocity[1], icon2.velocity[1] = icon2.velocity[1], icon1.velocity[1]
+                    
+                    # 衝突後に少しランダムな速度成分を追加して対称性を崩す
+                    random_factor = 0.3
+                    icon1.velocity[0] += random.uniform(-random_factor, random_factor)
+                    icon1.velocity[1] += random.uniform(-random_factor, random_factor)
+                    icon2.velocity[0] += random.uniform(-random_factor, random_factor)
+                    icon2.velocity[1] += random.uniform(-random_factor, random_factor)
                     
                     # 相互作用の記録
                     icon1.last_interaction = icon2
