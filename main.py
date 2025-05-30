@@ -768,6 +768,48 @@ class Game:
                     
                     # 補完関係の処理
                     self._handle_complementary_relations(icon1, icon2)
+                    
+                    # 重なり防止のための位置調整
+                    self._adjust_overlapping_positions(icon1, icon2)
+    
+    def _adjust_overlapping_positions(self, icon1, icon2):
+        """重なっているアイコンの位置を調整"""
+        # アイコン間のベクトルを計算
+        dx = icon2.rect.centerx - icon1.rect.centerx
+        dy = icon2.rect.centery - icon1.rect.centery
+        
+        # ベクトルの長さ（距離）を計算
+        distance = math.sqrt(dx*dx + dy*dy)
+        
+        # アイコンの半径（サイズの半分）
+        icon_radius = icon1.rect.width / 2
+        min_distance = icon_radius * 2  # 最小距離は両方のアイコンの半径の合計
+        
+        # 重なっている場合のみ調整
+        if distance < min_distance and distance > 0:  # 0除算を防ぐ
+            # 重なりの度合いを計算
+            overlap = min_distance - distance
+            
+            # 正規化したベクトル
+            if distance > 0:
+                dx /= distance
+                dy /= distance
+            
+            # 重なりを解消するための移動量
+            move_x = dx * overlap / 2
+            move_y = dy * overlap / 2
+            
+            # 両方のアイコンを反対方向に移動
+            icon1.rect.x -= move_x
+            icon1.rect.y -= move_y
+            icon2.rect.x += move_x
+            icon2.rect.y += move_y
+            
+            # ゲームエリア内に収める
+            icon1.rect.left = max(0, min(icon1.rect.left, GAME_AREA_WIDTH - icon1.rect.width))
+            icon1.rect.top = max(0, min(icon1.rect.top, SCREEN_HEIGHT - icon1.rect.height))
+            icon2.rect.left = max(0, min(icon2.rect.left, GAME_AREA_WIDTH - icon2.rect.width))
+            icon2.rect.top = max(0, min(icon2.rect.top, SCREEN_HEIGHT - icon2.rect.height))
     
     def _handle_complementary_relations(self, icon1, icon2):
         """補完関係の処理"""
