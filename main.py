@@ -9,12 +9,12 @@ import math
 from pygame.locals import *
 
 # 定数
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
+SCREEN_WIDTH = 850  # 画面の幅を800から850に増加
+SCREEN_HEIGHT = 650  # 画面の高さを600から650に増加
 FPS = 60
 BACKGROUND_COLOR = (240, 240, 240)
 TITLE = "AWS Icon Life"
-UI_PANEL_WIDTH = 200  # 右側のUIパネル幅
+UI_PANEL_WIDTH = 250  # 右側のUIパネル幅を200から250に増加
 GAME_AREA_WIDTH = SCREEN_WIDTH - UI_PANEL_WIDTH  # ゲームエリアの幅
 UI_BACKGROUND_COLOR = (230, 230, 230)
 UI_TEXT_COLOR = (50, 50, 50)
@@ -708,12 +708,32 @@ class AWSIcon(pygame.sprite.Sprite):
                 if all_icons and random.random() < 0.02:  # 2%の確率でLambda探索
                     lambda_icons = [icon for icon in all_icons if icon.service_type == "Lambda"]
                     if lambda_icons:
-                        # ランダムなLambdaを選択
-                        self.target_lambda = random.choice(lambda_icons)
-                        self.api_state = 'connect'
-                        self.state_timer = 0
-                        # 現在位置を記憶
-                        self.original_position = [self.rect.centerx, self.rect.centery]
+                        # 他のAPI Gatewayが既に接続しているLambdaを除外
+                        available_lambdas = []
+                        for lambda_icon in lambda_icons:
+                            # このLambdaに接近しているAPI Gatewayがあるか確認
+                            has_approaching_gateway = False
+                            for icon in all_icons:
+                                if (icon != self and 
+                                    icon.service_type == "API Gateway" and 
+                                    hasattr(icon, 'api_state') and 
+                                    icon.api_state in ['connect', 'return'] and 
+                                    hasattr(icon, 'target_lambda') and 
+                                    icon.target_lambda == lambda_icon):
+                                    has_approaching_gateway = True
+                                    break
+                            
+                            # 接近しているAPI Gatewayがなければ利用可能
+                            if not has_approaching_gateway:
+                                available_lambdas.append(lambda_icon)
+                        
+                        # 利用可能なLambdaがあれば選択
+                        if available_lambdas:
+                            self.target_lambda = random.choice(available_lambdas)
+                            self.api_state = 'connect'
+                            self.state_timer = 0
+                            # 現在位置を記憶
+                            self.original_position = [self.rect.centerx, self.rect.centery]
             
             elif self.api_state == 'connect':
                 # 接続状態: 選択したLambdaに向かって移動
@@ -1502,7 +1522,7 @@ class UIPanel:
             surface.blit(no_selection, (self.rect.x + 20, self.rect.y + y_offset))
         
         # 操作説明
-        y_offset = self.rect.height - 120
+        y_offset = self.rect.height - 140  # 120から140に変更して上に移動
         help_title = self.font.render("Controls", True, UI_TEXT_COLOR)
         surface.blit(help_title, (self.rect.x + 10, self.rect.y + y_offset))
         
@@ -1511,7 +1531,6 @@ class UIPanel:
             "Left Click (empty): Place icon",
             "Left Click (on icon): Select icon",
             "Left Click+Drag: Move icon",
-            "Middle Click+Drag: Direct control",
             "Space: Random placement",
             "ESC: Exit"
         ]
@@ -1552,11 +1571,8 @@ class Game:
     
     def _create_initial_icons(self):
         """初期アイコンを生成"""
-        for service in AWS_ICONS:
-            position = (random.randint(50, GAME_AREA_WIDTH - 50), 
-                        random.randint(50, SCREEN_HEIGHT - 50))
-            icon = AWSIcon(service, position)
-            self.all_icons.add(icon)
+        # 起動時には何もアイコンを配置しない
+        pass
     
     def handle_events(self):
         """イベント処理"""
