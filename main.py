@@ -20,7 +20,7 @@ UI_TEXT_COLOR = (50, 50, 50)
 UI_BORDER_COLOR = (200, 200, 200)
 
 # AWSアイコンの種類
-AWS_ICONS = ["EC2", "S3", "VPC", "Lambda"]
+AWS_ICONS = ["EC2", "S3", "VPC", "Lambda", "EBS", "RDS", "IAM", "DynamoDB", "API Gateway", "CloudFront"]
 
 class AWSIcon(pygame.sprite.Sprite):
     """AWSサービスアイコンを表すクラス"""
@@ -41,10 +41,16 @@ class AWSIcon(pygame.sprite.Sprite):
             # 画像が見つからない場合は代替の四角形を使用
             self.image = pygame.Surface((50, 50))
             color_map = {
-                "EC2": (255, 153, 0),    # オレンジ
-                "S3": (227, 86, 0),      # 赤っぽいオレンジ
-                "VPC": (138, 180, 248),  # 水色
-                "Lambda": (250, 146, 3)  # 濃いオレンジ
+                "EC2": (255, 153, 0),      # オレンジ
+                "S3": (227, 86, 0),        # 赤っぽいオレンジ
+                "VPC": (138, 180, 248),    # 水色
+                "Lambda": (250, 146, 3),   # 濃いオレンジ
+                "EBS": (255, 153, 153),    # ピンク
+                "RDS": (0, 128, 128),      # ティール
+                "IAM": (255, 215, 0),      # 金色
+                "DynamoDB": (54, 150, 215),# 青
+                "API Gateway": (150, 0, 150), # 紫
+                "CloudFront": (255, 99, 71)  # トマト色
             }
             self.image.fill(color_map.get(service_type, (200, 200, 200)))
             font = pygame.font.SysFont(None, 20)
@@ -55,7 +61,8 @@ class AWSIcon(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.center = position
         
-        # 速度がない場合はランダムな速度を設定
+        # 速度がない場合はランダムな速度を設定（最大速度を制限）
+        self.max_velocity = 3.0  # 最大速度の設定
         if velocity is None:
             self.velocity = [random.uniform(-2, 2), random.uniform(-2, 2)]
         else:
@@ -89,7 +96,13 @@ class AWSIcon(pygame.sprite.Sprite):
         if self.service_type == "EC2":
             return ["VPC"]
         elif self.service_type == "Lambda":
-            return ["IAM"]  # 実際にはIAMアイコンはまだ実装していない
+            return ["IAM"]
+        elif self.service_type == "RDS":
+            return ["VPC"]
+        elif self.service_type == "API Gateway":
+            return ["Lambda"]
+        elif self.service_type == "CloudFront":
+            return ["S3"]
         return []
     
     def update(self, all_icons=None):
@@ -97,6 +110,12 @@ class AWSIcon(pygame.sprite.Sprite):
         # 移動
         self.rect.x += self.velocity[0]
         self.rect.y += self.velocity[1]
+        
+        # 速度の上限を制限
+        self.velocity = [
+            max(min(self.velocity[0], self.max_velocity), -self.max_velocity),
+            max(min(self.velocity[1], self.max_velocity), -self.max_velocity)
+        ]
         
         # 画面端での反射（ゲームエリア内のみ）
         if self.rect.left < 0 or self.rect.right > GAME_AREA_WIDTH:
@@ -117,9 +136,10 @@ class AWSIcon(pygame.sprite.Sprite):
                     break
             
             # 依存関係が満たされていない場合、体力を減少
-            if not self.dependency_satisfied and self.service_type == "EC2":
-                self.health = max(0, self.health - 0.1)
-            elif self.dependency_satisfied and self.health < self.max_health:
+            if not self.dependency_satisfied:
+                if self.service_type in ["EC2", "RDS", "API Gateway", "CloudFront"]:
+                    self.health = max(0, self.health - 0.1)
+            elif self.health < self.max_health:
                 self.health = min(self.max_health, self.health + 0.05)
         
         # 相互作用タイマーの更新
@@ -414,6 +434,40 @@ class Game:
                     if icon2.service_type in icon1.dependencies:
                         # 依存関係が満たされた場合、体力回復を加速
                         icon1.health = min(icon1.max_health, icon1.health + 5)
+                    
+                    # 補完関係の処理
+                    self._handle_complementary_relations(icon1, icon2)
+    
+    def _handle_complementary_relations(self, icon1, icon2):
+        """補完関係の処理"""
+        # EC2とEBSの補完関係
+        if (icon1.service_type == "EC2" and icon2.service_type == "EBS") or \
+           (icon1.service_type == "EBS" and icon2.service_type == "EC2"):
+            # 両方のアイコンの速度を少し遅くする（安定性を表現）
+            icon1.velocity = [v * 0.9 for v in icon1.velocity]
+            icon2.velocity = [v * 0.9 for v in icon2.velocity]
+            # 体力を回復
+            icon1.health = min(icon1.max_health, icon1.health + 2)
+            icon2.health = min(icon2.max_health, icon2.health + 2)
+        
+        # LambdaとDynamoDBの補完関係
+        if (icon1.service_type == "Lambda" and icon2.service_type == "DynamoDB") or \
+           (icon1.service_type == "DynamoDB" and icon2.service_type == "Lambda"):
+            # 両方のアイコンの速度を少し速くする（効率性を表現）- 上限あり
+            icon1.velocity = [min(v * 1.1, v * 2 if v > 0 else v * -2) for v in icon1.velocity]
+            icon2.velocity = [min(v * 1.1, v * 2 if v > 0 else v * -2) for v in icon2.velocity]
+            # 体力を回復
+            icon1.health = min(icon1.max_health, icon1.health + 2)
+            icon2.health = min(icon2.max_health, icon2.health + 2)
+        
+        # S3とCloudFrontの補完関係
+        if (icon1.service_type == "S3" and icon2.service_type == "CloudFront") or \
+           (icon1.service_type == "CloudFront" and icon2.service_type == "S3"):
+            # CloudFrontの速度を速くする（配信の高速化を表現）- 上限あり
+            if icon1.service_type == "CloudFront":
+                icon1.velocity = [min(v * 1.2, v * 2 if v > 0 else v * -2) for v in icon1.velocity]
+            else:
+                icon2.velocity = [min(v * 1.2, v * 2 if v > 0 else v * -2) for v in icon2.velocity]
     
     def render(self):
         """描画処理"""
