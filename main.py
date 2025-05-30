@@ -121,6 +121,8 @@ class AWSIcon(pygame.sprite.Sprite):
             return ["Lambda"]
         elif self.service_type == "CloudFront":
             return ["S3"]
+        elif self.service_type == "EBS":
+            return ["EC2"]  # EBSはEC2に依存（EC2にアタッチされる）
         return []
         
     def _handle_overlap(self, other_icon):
@@ -1209,7 +1211,8 @@ class ProgressSystem:
             "Lambda-IAM": {"achieved": False, "description": "Lambda has IAM role"},
             "RDS-VPC": {"achieved": False, "description": "RDS exists in VPC"},
             "API Gateway-Lambda": {"achieved": False, "description": "API Gateway connected to Lambda"},
-            "CloudFront-S3": {"achieved": False, "description": "CloudFront connected to S3"}
+            "CloudFront-S3": {"achieved": False, "description": "CloudFront connected to S3"},
+            "EBS-EC2": {"achieved": False, "description": "EBS attached to EC2"}
         }
         
         # 補完関係の達成状況
@@ -1248,6 +1251,9 @@ class ProgressSystem:
         
         # CloudFront-S3
         self._check_dependency_pair(all_icons, "CloudFront", "S3", "CloudFront-S3")
+        
+        # EBS-EC2
+        self._check_dependency_pair(all_icons, "EBS", "EC2", "EBS-EC2")
     
     def _check_complementary_relations(self, all_icons):
         """補完関係の達成状況を確認"""
@@ -1762,6 +1768,20 @@ class Game:
             # 体力を回復
             icon1.health = min(icon1.max_health, icon1.health + 2)
             icon2.health = min(icon2.max_health, icon2.health + 2)
+            
+            # EC2とEBSが近くにいる場合、EBSはEC2に追従する傾向を強める
+            if icon1.service_type == "EC2" and icon2.service_type == "EBS":
+                # EC2の動きにEBSを追従させる
+                icon2.velocity = [
+                    0.7 * icon2.velocity[0] + 0.3 * icon1.velocity[0],
+                    0.7 * icon2.velocity[1] + 0.3 * icon1.velocity[1]
+                ]
+            elif icon1.service_type == "EBS" and icon2.service_type == "EC2":
+                # EC2の動きにEBSを追従させる
+                icon1.velocity = [
+                    0.7 * icon1.velocity[0] + 0.3 * icon2.velocity[0],
+                    0.7 * icon1.velocity[1] + 0.3 * icon2.velocity[1]
+                ]
         
         # LambdaとDynamoDBの補完関係
         if (icon1.service_type == "Lambda" and icon2.service_type == "DynamoDB") or \
