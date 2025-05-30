@@ -1300,6 +1300,7 @@ class UIPanel:
         controls = [
             "Left Click: Place icon",
             "Right Click: Select icon",
+            "Middle Click+Drag: Direct control",
             "Space: Random placement",
             "ESC: Exit"
         ]
@@ -1328,6 +1329,9 @@ class Game:
         
         # 選択中のアイコン
         self.selected_icon = None
+        
+        # 直接操作中のアイコン
+        self.direct_control_icon = None
         
         # 初期アイコンの生成
         self._create_initial_icons()
@@ -1363,23 +1367,47 @@ class Game:
                         service = random.choice(AWS_ICONS)
                         icon = AWSIcon(service, event.pos)
                         self.all_icons.add(icon)
+                    elif event.button == 2:  # 中クリック（ホイールクリック）
+                        # アイコンの選択と直接操作モードの開始
+                        self._select_icon_for_direct_control(event.pos)
                     elif event.button == 3:  # 右クリック
                         # アイコンの選択
                         self._select_icon_at_position(event.pos)
+            elif event.type == MOUSEMOTION:
+                # マウス移動時の処理
+                if hasattr(self, 'direct_control_icon') and self.direct_control_icon:
+                    # 直接操作モードの場合、アイコンをマウス位置に移動
+                    self.direct_control_icon.rect.center = event.pos
+                    # 速度をリセット（マウスで直接操作中は自動移動しない）
+                    self.direct_control_icon.velocity = [0, 0]
+            elif event.type == MOUSEBUTTONUP:
+                if event.button == 2:  # 中クリック（ホイールクリック）リリース
+                    # 直接操作モードの終了
+                    if hasattr(self, 'direct_control_icon') and self.direct_control_icon:
+                        # 新しいランダムな速度を設定
+                        angle = random.uniform(0, 2 * math.pi)
+                        speed = random.uniform(0.5, 1.5)
+                        self.direct_control_icon.velocity = [
+                            math.cos(angle) * speed,
+                            math.sin(angle) * speed
+                        ]
+                        self.direct_control_icon = None
     
-    def _select_icon_at_position(self, position):
-        """指定位置のアイコンを選択"""
+    def _select_icon_for_direct_control(self, position):
+        """指定位置のアイコンを選択して直接操作モードを開始"""
         # 以前の選択をクリア
         if self.selected_icon:
             self.selected_icon.selected = False
         
         self.selected_icon = None
+        self.direct_control_icon = None
         
         # 位置にあるアイコンを探す
         for icon in self.all_icons:
             if icon.rect.collidepoint(position):
                 icon.selected = True
                 self.selected_icon = icon
+                self.direct_control_icon = icon  # 直接操作対象として設定
                 break
     
     def update(self):
