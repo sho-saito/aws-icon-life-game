@@ -19,6 +19,7 @@ GAME_AREA_WIDTH = SCREEN_WIDTH - UI_PANEL_WIDTH  # ゲームエリアの幅
 UI_BACKGROUND_COLOR = (230, 230, 230)
 UI_TEXT_COLOR = (50, 50, 50)
 UI_BORDER_COLOR = (200, 200, 200)
+UI_BORDER_COLOR = (200, 200, 200)
 
 # AWSアイコンの種類
 AWS_ICONS = ["EC2", "S3", "VPC", "Lambda", "EBS", "RDS", "IAM", "DynamoDB", "API Gateway", "CloudFront"]
@@ -1198,6 +1199,209 @@ class UIPanel:
     def __init__(self, x, y, width, height):
         self.rect = pygame.Rect(x, y, width, height)
         self.font = pygame.font.SysFont(None, 24)
+class ProgressSystem:
+    """ゲームの進行状況を管理するクラス"""
+    
+    def __init__(self):
+        # 依存関係の達成状況
+        self.dependency_achievements = {
+            "EC2-VPC": {"achieved": False, "description": "EC2 exists in VPC"},
+            "Lambda-IAM": {"achieved": False, "description": "Lambda has IAM role"},
+            "RDS-VPC": {"achieved": False, "description": "RDS exists in VPC"},
+            "API Gateway-Lambda": {"achieved": False, "description": "API Gateway connected to Lambda"},
+            "CloudFront-S3": {"achieved": False, "description": "CloudFront connected to S3"}
+        }
+        
+        # 補完関係の達成状況
+        self.complementary_achievements = {
+            "EC2-EBS": {"achieved": False, "description": "EC2 and EBS integration"},
+            "Lambda-DynamoDB": {"achieved": False, "description": "Lambda and DynamoDB integration"},
+            "S3-CloudFront": {"achieved": False, "description": "S3 and CloudFront integration"}
+        }
+        
+        # 通知メッセージのキュー
+        self.notifications = []
+        self.notification_duration = 180  # 通知表示フレーム数（約3秒）
+        self.notification_timers = {}  # 通知ごとのタイマー
+    
+    def check_achievements(self, all_icons):
+        """アイコン間の関係を確認し、達成状況を更新"""
+        # 依存関係の確認
+        self._check_dependencies(all_icons)
+        
+        # 補完関係の確認
+        self._check_complementary_relations(all_icons)
+    
+    def _check_dependencies(self, all_icons):
+        """依存関係の達成状況を確認"""
+        # EC2-VPC
+        self._check_dependency_pair(all_icons, "EC2", "VPC", "EC2-VPC")
+        
+        # Lambda-IAM
+        self._check_dependency_pair(all_icons, "Lambda", "IAM", "Lambda-IAM")
+        
+        # RDS-VPC
+        self._check_dependency_pair(all_icons, "RDS", "VPC", "RDS-VPC")
+        
+        # API Gateway-Lambda
+        self._check_dependency_pair(all_icons, "API Gateway", "Lambda", "API Gateway-Lambda")
+        
+        # CloudFront-S3
+        self._check_dependency_pair(all_icons, "CloudFront", "S3", "CloudFront-S3")
+    
+    def _check_complementary_relations(self, all_icons):
+        """補完関係の達成状況を確認"""
+        # EC2-EBS
+        self._check_complementary_pair(all_icons, "EC2", "EBS", "EC2-EBS")
+        
+        # Lambda-DynamoDB
+        self._check_complementary_pair(all_icons, "Lambda", "DynamoDB", "Lambda-DynamoDB")
+        
+        # S3-CloudFront
+        self._check_complementary_pair(all_icons, "S3", "CloudFront", "S3-CloudFront")
+    
+    def _check_dependency_pair(self, all_icons, service1, service2, achievement_key):
+        """特定の依存関係が満たされているかを確認"""
+        service1_icons = [icon for icon in all_icons if icon.service_type == service1]
+        service2_icons = [icon for icon in all_icons if icon.service_type == service2]
+        
+        # 両方のサービスが存在する場合のみチェック
+        if service1_icons and service2_icons:
+            # 依存関係が満たされているかを確認（近接しているか）
+            for icon1 in service1_icons:
+                for icon2 in service2_icons:
+                    if icon1._is_near(icon2, 150):  # 150pxの距離内にあるか
+                        # まだ達成されていない場合、通知を追加
+                        if not self.dependency_achievements[achievement_key]["achieved"]:
+                            self.dependency_achievements[achievement_key]["achieved"] = True
+                            description = self.dependency_achievements[achievement_key]["description"]
+                            self.add_notification(f"Dependency Achieved: {description}")
+                        return
+            
+            # 近接していない場合でも、達成状態はリセットしない
+            # 一度達成したものは永続的に達成状態を維持
+    
+    def _check_complementary_pair(self, all_icons, service1, service2, achievement_key):
+        """特定の補完関係が満たされているかを確認"""
+        service1_icons = [icon for icon in all_icons if icon.service_type == service1]
+        service2_icons = [icon for icon in all_icons if icon.service_type == service2]
+        
+        # 両方のサービスが存在する場合のみチェック
+        if service1_icons and service2_icons:
+            # 補完関係が満たされているかを確認（相互作用しているか）
+            for icon1 in service1_icons:
+                for icon2 in service2_icons:
+                    if hasattr(icon1, 'last_interaction') and icon1.last_interaction == icon2:
+                        # まだ達成されていない場合、通知を追加
+                        if not self.complementary_achievements[achievement_key]["achieved"]:
+                            self.complementary_achievements[achievement_key]["achieved"] = True
+                            description = self.complementary_achievements[achievement_key]["description"]
+                            self.add_notification(f"Complementary Relation Achieved: {description}")
+                        return
+                    if hasattr(icon2, 'last_interaction') and icon2.last_interaction == icon1:
+                        # まだ達成されていない場合、通知を追加
+                        if not self.complementary_achievements[achievement_key]["achieved"]:
+                            self.complementary_achievements[achievement_key]["achieved"] = True
+                            description = self.complementary_achievements[achievement_key]["description"]
+                            self.add_notification(f"Complementary Relation Achieved: {description}")
+                        return
+            
+            # 相互作用していない場合でも、達成状態はリセットしない
+            # 一度達成したものは永続的に達成状態を維持
+    
+    def add_notification(self, message):
+        """通知メッセージを追加"""
+        if message not in self.notifications:
+            self.notifications.append(message)
+            self.notification_timers[message] = self.notification_duration
+    
+    def update_notifications(self):
+        """通知の表示時間を更新"""
+        for message in list(self.notification_timers.keys()):
+            self.notification_timers[message] -= 1
+            if self.notification_timers[message] <= 0:
+                self.notifications.remove(message)
+                del self.notification_timers[message]
+    
+    def get_dependency_achievement_rate(self):
+        """依存関係の達成率を計算"""
+        achieved = sum(1 for item in self.dependency_achievements.values() if item["achieved"])
+        total = len(self.dependency_achievements)
+        return achieved, total
+    
+    def get_complementary_achievement_rate(self):
+        """補完関係の達成率を計算"""
+        achieved = sum(1 for item in self.complementary_achievements.values() if item["achieved"])
+        total = len(self.complementary_achievements)
+        return achieved, total
+    
+    def get_total_achievement_rate(self):
+        """全体の達成率を計算"""
+        dep_achieved, dep_total = self.get_dependency_achievement_rate()
+        comp_achieved, comp_total = self.get_complementary_achievement_rate()
+        return dep_achieved + comp_achieved, dep_total + comp_total
+    
+    def draw(self, surface, font):
+        """進行状況と通知を描画"""
+        # 達成率の表示
+        dep_achieved, dep_total = self.get_dependency_achievement_rate()
+        comp_achieved, comp_total = self.get_complementary_achievement_rate()
+        total_achieved, total_total = self.get_total_achievement_rate()
+        
+        # 達成率テキスト
+        achievement_text = f"Total Achievement: {total_achieved}/{total_total}"
+        dep_text = f"Dependencies: {dep_achieved}/{dep_total}"
+        comp_text = f"Complementary: {comp_achieved}/{comp_total}"
+        
+        # テキスト描画
+        text_color = (50, 50, 50)
+        achievement_surface = font.render(achievement_text, True, text_color)
+        dep_surface = font.render(dep_text, True, text_color)
+        comp_surface = font.render(comp_text, True, text_color)
+        
+        # 位置調整（画面左上）
+        margin = 10
+        surface.blit(achievement_surface, (margin, margin))
+        surface.blit(dep_surface, (margin, margin + 25))
+        surface.blit(comp_surface, (margin, margin + 50))
+        
+        # 通知の表示
+        self._draw_notifications(surface, font)
+    
+    def _draw_notifications(self, surface, font):
+        """通知メッセージを描画"""
+        if not self.notifications:
+            return
+        
+        # 通知背景の設定
+        notification_bg_color = (0, 0, 0, 180)  # 半透明の黒
+        notification_text_color = (255, 255, 255)  # 白
+        
+        # 通知領域の設定
+        notification_width = 600  # 幅を広くして文字が欠けないようにする
+        notification_height = 30 * len(self.notifications)
+        notification_x = (GAME_AREA_WIDTH - notification_width) // 2
+        notification_y = 50
+        
+        # 通知背景の描画
+        notification_surface = pygame.Surface((notification_width, notification_height), pygame.SRCALPHA)
+        notification_surface.fill(notification_bg_color)
+        
+        # 通知テキストの描画
+        for i, message in enumerate(self.notifications):
+            text_surface = font.render(message, True, notification_text_color)
+            text_rect = text_surface.get_rect(center=(notification_width // 2, 15 + 30 * i))
+            notification_surface.blit(text_surface, text_rect)
+        
+        # 通知を画面に描画
+        surface.blit(notification_surface, (notification_x, notification_y))
+
+class UIPanel:
+    """ゲームのUIパネルを管理するクラス"""
+    
+    def __init__(self, x, y, width, height):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.font = pygame.font.SysFont(None, 24)
         self.small_font = pygame.font.SysFont(None, 20)
         self.selected_icon = None
         self.icon_counts = {icon_type: 0 for icon_type in AWS_ICONS}
@@ -1334,6 +1538,9 @@ class Game:
         # 直接操作中のアイコン
         self.direct_control_icon = None
         
+        # 進行システム
+        self.progress_system = ProgressSystem()
+        
         # 初期アイコンの生成
         self._create_initial_icons()
     
@@ -1458,6 +1665,10 @@ class Game:
         
         # UIパネルの更新
         self.ui_panel.update(self.all_icons, self.selected_icon)
+        
+        # 進行システムの更新
+        self.progress_system.check_achievements(self.all_icons)
+        self.progress_system.update_notifications()
         
         # 体力が0になったアイコンを削除（EC2など）
         for icon in list(self.all_icons):
@@ -1587,6 +1798,10 @@ class Game:
         # アイコンの描画（カスタム描画メソッドを使用）
         for icon in self.all_icons:
             icon.draw(self.screen)
+        
+        # 進行システムの描画
+        font = pygame.font.SysFont(None, 24)
+        self.progress_system.draw(self.screen, font)
         
         # UIパネルの描画
         self.ui_panel.draw(self.screen)
