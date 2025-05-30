@@ -5,6 +5,7 @@ import pygame
 import sys
 import os
 import random
+import math
 from pygame.locals import *
 
 # 定数
@@ -90,6 +91,11 @@ class AWSIcon(pygame.sprite.Sprite):
         # 最後に相互作用したアイコン
         self.last_interaction = None
         self.interaction_timer = 0
+        
+        # 停止状態の管理
+        self.is_stopped = False
+        self.stop_timer = 0
+        self.max_stop_time = 120  # 最大停止時間（フレーム数）
     
     def _set_dependencies(self):
         """サービスの依存関係を設定"""
@@ -107,9 +113,29 @@ class AWSIcon(pygame.sprite.Sprite):
     
     def update(self, all_icons=None):
         """アイコンの状態を更新"""
-        # 移動
-        self.rect.x += self.velocity[0]
-        self.rect.y += self.velocity[1]
+        # サービスタイプ固有の動きパターンを適用
+        self._apply_movement_pattern(all_icons)
+        
+        # 停止状態の管理
+        if self.is_stopped:
+            self.stop_timer += 1
+            # 最大停止時間を超えたら再始動
+            if self.stop_timer >= self.max_stop_time:
+                self.is_stopped = False
+                self.stop_timer = 0
+                # ランダムな方向に再始動
+                angle = random.uniform(0, 2 * math.pi)
+                speed = random.uniform(0.5, 1.5)
+                self.velocity = [
+                    math.cos(angle) * speed,
+                    math.sin(angle) * speed
+                ]
+        
+        # 停止していない場合のみ移動
+        if not self.is_stopped:
+            # 移動
+            self.rect.x += self.velocity[0]
+            self.rect.y += self.velocity[1]
         
         # 速度の上限を制限
         self.velocity = [
@@ -145,6 +171,209 @@ class AWSIcon(pygame.sprite.Sprite):
         # 相互作用タイマーの更新
         if self.interaction_timer > 0:
             self.interaction_timer -= 1
+    
+    def _apply_movement_pattern(self, all_icons):
+        """サービスタイプ固有の動きパターンを適用"""
+        if self.service_type == "EC2":
+            # EC2: 比較的直線的な動き、VPCの近くに留まろうとする傾向
+            
+            # 方向転換の確率を低く設定（直線的な動きを維持）
+            if random.random() < 0.02:  # 2%の確率で方向転換
+                angle = random.uniform(0, 2 * math.pi)
+                speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+                self.velocity = [
+                    math.cos(angle) * speed,
+                    math.sin(angle) * speed
+                ]
+            
+            # VPCの近くに留まろうとする動き
+            if all_icons:
+                for icon in all_icons:
+                    if icon.service_type == "VPC":
+                        # VPCとの距離を計算
+                        dx = icon.rect.centerx - self.rect.centerx
+                        dy = icon.rect.centery - self.rect.centery
+                        distance = math.sqrt(dx*dx + dy*dy)
+                        
+                        if distance > 0:  # 0除算を防ぐ
+                            # 距離が300px以上の場合、VPCに向かって強く引き寄せられる
+                            if distance > 300:
+                                # 引力の強さ（距離に反比例）- より強く
+                                attraction = 0.15
+                                # 正規化した方向ベクトル
+                                direction_x = dx / distance
+                                direction_y = dy / distance
+                                
+                                # 速度に引力を加える
+                                self.velocity[0] += direction_x * attraction
+                                self.velocity[1] += direction_y * attraction
+                            # 距離が100px〜300pxの場合、弱い引力
+                            elif distance > 100:
+                                # 弱い引力
+                                attraction = 0.08
+                                direction_x = dx / distance
+                                direction_y = dy / distance
+                                self.velocity[0] += direction_x * attraction
+                                self.velocity[1] += direction_y * attraction
+        
+        elif self.service_type == "S3":
+            # S3: ゆっくりとした動き、あまり移動しない
+            
+            # 速度を常に低く保つ
+            max_s3_speed = 1.0  # S3の最大速度
+            current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+            
+            # 現在の速度が最大速度を超えている場合、速度を下げる
+            if current_speed > max_s3_speed and current_speed > 0:
+                ratio = max_s3_speed / current_speed
+                self.velocity = [v * ratio for v in self.velocity]
+            
+            # ランダムに減速する確率
+            if random.random() < 0.05:  # 5%の確率で減速
+                self.velocity = [v * 0.9 for v in self.velocity]
+            
+            # 長時間同じ方向に動かないように、時々わずかに方向を変える
+            if random.random() < 0.1:  # 10%の確率で方向微調整
+                angle_change = random.uniform(-0.2, 0.2)  # 小さな角度変化
+                speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+                if speed > 0:
+                    current_angle = math.atan2(self.velocity[1], self.velocity[0])
+                    new_angle = current_angle + angle_change
+                    self.velocity = [
+                        math.cos(new_angle) * speed,
+                        math.sin(new_angle) * speed
+                    ]
+            
+            # 時々完全に停止する（停止状態管理を使用）
+            if not self.is_stopped and random.random() < 0.01:  # 1%の確率で停止
+                self.is_stopped = True
+                self.stop_timer = 0
+                self.velocity = [0, 0]
+        
+        elif self.service_type == "EBS":
+            # EBS: EC2の近くに留まろうとする動き
+            
+            # 基本的な動きはS3と似ているが、より積極的にEC2を追いかける
+            
+            # 速度を中程度に保つ
+            max_ebs_speed = 1.5  # EBSの最大速度
+            current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+            
+            # 現在の速度が最大速度を超えている場合、速度を下げる
+            if current_speed > max_ebs_speed and current_speed > 0:
+                ratio = max_ebs_speed / current_speed
+                self.velocity = [v * ratio for v in self.velocity]
+            
+            # EC2を探して近くに留まろうとする動き
+            if all_icons:
+                # 最も近いEC2を探す
+                closest_ec2 = None
+                min_distance = float('inf')
+                
+                for icon in all_icons:
+                    if icon.service_type == "EC2":
+                        dx = icon.rect.centerx - self.rect.centerx
+                        dy = icon.rect.centery - self.rect.centery
+                        distance = math.sqrt(dx*dx + dy*dy)
+                        
+                        if distance < min_distance:
+                            min_distance = distance
+                            closest_ec2 = icon
+                
+                # 最も近いEC2が見つかった場合
+                if closest_ec2:
+                    dx = closest_ec2.rect.centerx - self.rect.centerx
+                    dy = closest_ec2.rect.centery - self.rect.centery
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if distance > 0:  # 0除算を防ぐ
+                        # 距離に応じた引力の調整
+                        if distance > 200:
+                            # 遠い場合は強い引力
+                            attraction = 0.2
+                        elif distance > 100:
+                            # 中距離の場合は中程度の引力
+                            attraction = 0.1
+                        elif distance > 50:
+                            # 近い場合は弱い引力
+                            attraction = 0.05
+                        else:
+                            # とても近い場合は引力なし（すでに十分近い）
+                            attraction = 0
+                        
+                        # 引力を適用
+                        if attraction > 0:
+                            direction_x = dx / distance
+                            direction_y = dy / distance
+                            self.velocity[0] += direction_x * attraction
+                            self.velocity[1] += direction_y * attraction
+                            
+                            # EC2の近くにいる場合、EC2と似た動きをする
+                            if distance < 100:
+                                # EC2の速度に少し影響される
+                                self.velocity[0] = 0.8 * self.velocity[0] + 0.2 * closest_ec2.velocity[0]
+                                self.velocity[1] = 0.8 * self.velocity[1] + 0.2 * closest_ec2.velocity[1]
+            
+            # 時々方向を変える（S3よりも頻度は低い）
+            if random.random() < 0.05:  # 5%の確率で方向微調整
+                angle_change = random.uniform(-0.3, 0.3)
+                speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+                if speed > 0:
+                    current_angle = math.atan2(self.velocity[1], self.velocity[0])
+                    new_angle = current_angle + angle_change
+                    self.velocity = [
+                        math.cos(new_angle) * speed,
+                        math.sin(new_angle) * speed
+                    ]
+        
+        elif self.service_type == "VPC":
+            # VPC: 広い範囲をゆっくり移動、他のサービスを引き寄せる
+            
+            # 速度を低めに保つ（安定したネットワーク基盤を表現）
+            max_vpc_speed = 0.8  # VPCの最大速度
+            current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+            
+            # 現在の速度が最大速度を超えている場合、速度を下げる
+            if current_speed > max_vpc_speed and current_speed > 0:
+                ratio = max_vpc_speed / current_speed
+                self.velocity = [v * ratio for v in self.velocity]
+            
+            # 円を描くような動きを強化
+            # 毎フレームで少しずつ角度を変える（一定方向に）
+            if not hasattr(self, 'rotation_direction'):
+                # 初回のみ回転方向をランダムに決定（1: 時計回り, -1: 反時計回り）
+                self.rotation_direction = random.choice([1, -1])
+            
+            # 角度変化量を調整（大きくして円運動を明確に）
+            angle_change = 0.02 * self.rotation_direction  # 一定方向に回転
+            
+            speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+            if speed > 0:
+                current_angle = math.atan2(self.velocity[1], self.velocity[0])
+                new_angle = current_angle + angle_change
+                self.velocity = [
+                    math.cos(new_angle) * speed,
+                    math.sin(new_angle) * speed
+                ]
+            
+            # 画面中央に向かう傾向（ネットワークの中心性を表現）
+            center_x = GAME_AREA_WIDTH / 2
+            center_y = SCREEN_HEIGHT / 2
+            dx = center_x - self.rect.centerx
+            dy = center_y - self.rect.centery
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance > 0:  # 0除算を防ぐ
+                # 中央からの距離に応じた引力
+                if distance > 300:
+                    # 遠い場合は強い引力
+                    attraction = 0.02
+                    direction_x = dx / distance
+                    direction_y = dy / distance
+                    self.velocity[0] += direction_x * attraction
+                    self.velocity[1] += direction_y * attraction
+            
+            # 他のサービスを引き寄せる効果はEC2、RDS、Lambda側で実装
     
     def _is_near(self, other_icon, distance):
         """他のアイコンが指定した距離内にあるかを確認"""
