@@ -575,6 +575,560 @@ class AWSIcon(pygame.sprite.Sprite):
                                 if self.lambda_state != 'burst':
                                     self.velocity[0] += direction_x * attraction
                                     self.velocity[1] += direction_y * attraction
+        
+        elif self.service_type == "DynamoDB":
+            # DynamoDB: ランダムな方向転換を頻繁に行い、高いスケーラビリティと分散性を表現
+            
+            # 速度を中程度に保つ
+            max_dynamo_speed = 2.0  # DynamoDBの最大速度
+            current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+            
+            # 現在の速度が最大速度を超えている場合、速度を下げる
+            if current_speed > max_dynamo_speed and current_speed > 0:
+                ratio = max_dynamo_speed / current_speed
+                self.velocity = [v * ratio for v in self.velocity]
+            
+            # 頻繁に方向を変える（ランダムアクセスパターンを表現）
+            if random.random() < 0.15:  # 15%の確率で方向転換
+                # 方向転換の角度を決定（小さな変化から大きな変化まで）
+                angle_change = random.uniform(-math.pi/2, math.pi/2)  # ±90度
+                
+                speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+                if speed > 0:
+                    current_angle = math.atan2(self.velocity[1], self.velocity[0])
+                    new_angle = current_angle + angle_change
+                    self.velocity = [
+                        math.cos(new_angle) * speed,
+                        math.sin(new_angle) * speed
+                    ]
+            
+            # 時々速度を急に変える（バーストキャパシティを表現）
+            if random.random() < 0.05:  # 5%の確率で速度変化
+                # 速度の変化量を決定（加速または減速）
+                speed_change = random.uniform(0.5, 2.0)
+                
+                # 加速または減速を決定
+                if random.random() < 0.5:  # 50%の確率で加速
+                    self.velocity = [v * speed_change for v in self.velocity]
+                else:  # 50%の確率で減速
+                    self.velocity = [v / speed_change for v in self.velocity]
+            
+            # 時々短い距離を素早く移動（読み取り/書き込みオペレーションを表現）
+            if random.random() < 0.02:  # 2%の確率でバースト移動
+                # 現在の速度を保存
+                original_velocity = self.velocity.copy()
+                
+                # バースト方向と速度を決定
+                angle = random.uniform(0, 2 * math.pi)
+                speed = random.uniform(2.5, 4.0)  # 高速
+                self.velocity = [
+                    math.cos(angle) * speed,
+                    math.sin(angle) * speed
+                ]
+                
+                # 10フレーム後に元の速度に戻す処理を予約
+                # （実際のゲームエンジンによっては異なる実装が必要）
+                def restore_velocity():
+                    self.velocity = original_velocity
+                
+                # 注意: この実装はタイマーを使用していないため、実際には機能しません
+                # 実際の実装では、状態管理やタイマーを使用する必要があります
+                
+            # 画面全体に分散する傾向（分散データベースの特性を表現）
+            # 画面の端に近づくと、中央方向への弱い引力が発生
+            edge_margin = 100  # 画面端からの距離
+            center_x = GAME_AREA_WIDTH / 2
+            center_y = SCREEN_HEIGHT / 2
+            
+            # 画面端に近い場合、中央方向への弱い引力を加える
+            if (self.rect.left < edge_margin or 
+                self.rect.right > GAME_AREA_WIDTH - edge_margin or 
+                self.rect.top < edge_margin or 
+                self.rect.bottom > SCREEN_HEIGHT - edge_margin):
+                
+                dx = center_x - self.rect.centerx
+                dy = center_y - self.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance > 0:  # 0除算を防ぐ
+                    # 引力の強さ（弱い）
+                    attraction = 0.03
+                    # 正規化した方向ベクトル
+                    direction_x = dx / distance
+                    direction_y = dy / distance
+                    
+                    # 速度に引力を加える
+                    self.velocity[0] += direction_x * attraction
+                    self.velocity[1] += direction_y * attraction
+        
+        elif self.service_type == "API Gateway":
+            # API Gateway: 入り口（画面端）付近を行き来する動き、Lambdaとの連携を表現
+            
+            # API Gatewayの状態管理（初期化）
+            if not hasattr(self, 'api_state'):
+                self.api_state = 'patrol'  # 'patrol', 'connect', 'return'
+                self.state_timer = 0
+                self.target_lambda = None
+                self.original_position = [self.rect.centerx, self.rect.centery]
+                self.patrol_direction = 1  # 1: 右/下方向, -1: 左/上方向
+                self.patrol_axis = random.choice(['x', 'y'])  # x軸またはy軸に沿ってパトロール
+                self.patrol_range = [100, GAME_AREA_WIDTH - 100]  # パトロール範囲（x軸）
+                if self.patrol_axis == 'y':
+                    self.patrol_range = [100, SCREEN_HEIGHT - 100]  # パトロール範囲（y軸）
+            
+            # 状態に応じた動作
+            if self.api_state == 'patrol':
+                # パトロール状態: 画面端付近を行き来する
+                
+                # 速度を中程度に保つ
+                max_patrol_speed = 1.5
+                
+                # パトロール軸に沿って移動
+                if self.patrol_axis == 'x':
+                    # x軸に沿ってパトロール
+                    self.velocity = [max_patrol_speed * self.patrol_direction, 0]
+                    
+                    # 範囲の端に到達したら方向転換
+                    if (self.rect.right >= self.patrol_range[1] and self.patrol_direction > 0) or \
+                       (self.rect.left <= self.patrol_range[0] and self.patrol_direction < 0):
+                        self.patrol_direction *= -1
+                else:
+                    # y軸に沿ってパトロール
+                    self.velocity = [0, max_patrol_speed * self.patrol_direction]
+                    
+                    # 範囲の端に到達したら方向転換
+                    if (self.rect.bottom >= self.patrol_range[1] and self.patrol_direction > 0) or \
+                       (self.rect.top <= self.patrol_range[0] and self.patrol_direction < 0):
+                        self.patrol_direction *= -1
+                
+                # Lambdaを探して接続状態に移行
+                if all_icons and random.random() < 0.02:  # 2%の確率でLambda探索
+                    lambda_icons = [icon for icon in all_icons if icon.service_type == "Lambda"]
+                    if lambda_icons:
+                        # ランダムなLambdaを選択
+                        self.target_lambda = random.choice(lambda_icons)
+                        self.api_state = 'connect'
+                        self.state_timer = 0
+                        # 現在位置を記憶
+                        self.original_position = [self.rect.centerx, self.rect.centery]
+            
+            elif self.api_state == 'connect':
+                # 接続状態: 選択したLambdaに向かって移動
+                
+                if self.target_lambda and self.target_lambda in all_icons:
+                    # Lambdaへの方向ベクトルを計算
+                    dx = self.target_lambda.rect.centerx - self.rect.centerx
+                    dy = self.target_lambda.rect.centery - self.rect.centery
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if distance > 0:  # 0除算を防ぐ
+                        # 高速で移動（APIリクエストの転送を表現）
+                        speed = 4.0
+                        direction_x = dx / distance
+                        direction_y = dy / distance
+                        self.velocity = [direction_x * speed, direction_y * speed]
+                    
+                    # Lambdaに到達したら戻り状態に移行
+                    if distance < 30:
+                        self.api_state = 'return'
+                        self.state_timer = 0
+                        
+                        # Lambdaとの相互作用を記録
+                        self.last_interaction = self.target_lambda
+                        self.interaction_timer = 30
+                        if hasattr(self.target_lambda, 'last_interaction'):
+                            self.target_lambda.last_interaction = self
+                            self.target_lambda.interaction_timer = 30
+                else:
+                    # ターゲットのLambdaが見つからない場合、パトロール状態に戻る
+                    self.api_state = 'patrol'
+                    self.target_lambda = None
+            
+            elif self.api_state == 'return':
+                # 戻り状態: 元の位置に戻る
+                
+                # 元の位置への方向ベクトルを計算
+                dx = self.original_position[0] - self.rect.centerx
+                dy = self.original_position[1] - self.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance > 0:  # 0除算を防ぐ
+                    # 高速で移動（APIレスポンスの返送を表現）
+                    speed = 3.0
+                    direction_x = dx / distance
+                    direction_y = dy / distance
+                    self.velocity = [direction_x * speed, direction_y * speed]
+                
+                # 元の位置に到達したらパトロール状態に戻る
+                if distance < 20:
+                    self.api_state = 'patrol'
+                    self.state_timer = 0
+                    self.target_lambda = None
+                    
+                    # パトロール方向をランダムに変更
+                    if random.random() < 0.5:
+                        self.patrol_direction *= -1
+                    
+                    # 時々パトロール軸を変更
+                    if random.random() < 0.3:
+                        self.patrol_axis = 'x' if self.patrol_axis == 'y' else 'y'
+                        self.patrol_range = [100, GAME_AREA_WIDTH - 100]  # パトロール範囲（x軸）
+                        if self.patrol_axis == 'y':
+                            self.patrol_range = [100, SCREEN_HEIGHT - 100]  # パトロール範囲（y軸）
+        
+        elif self.service_type == "RDS":
+            # RDS: 安定した円形の動き、VPCへの依存関係を表現
+            
+            # RDSの状態管理（初期化）
+            if not hasattr(self, 'rds_state'):
+                self.rds_state = 'normal'  # 'normal', 'backup'
+                self.state_timer = 0
+                self.orbit_center = None
+                self.orbit_radius = random.randint(50, 100)
+                self.orbit_speed = random.uniform(0.01, 0.02)  # 角速度（ラジアン/フレーム）
+                self.orbit_angle = random.uniform(0, 2 * math.pi)
+                self.orbit_direction = random.choice([1, -1])  # 1: 時計回り, -1: 反時計回り
+            
+            # 速度を低めに保つ（安定したデータベースを表現）
+            max_rds_speed = 1.0  # RDSの最大速度
+            current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+            
+            # 現在の速度が最大速度を超えている場合、速度を下げる
+            if current_speed > max_rds_speed and current_speed > 0:
+                ratio = max_rds_speed / current_speed
+                self.velocity = [v * ratio for v in self.velocity]
+            
+            # VPCを探して近くに留まろうとする動き（依存関係）
+            vpc_found = False
+            if all_icons:
+                for icon in all_icons:
+                    if icon.service_type == "VPC":
+                        vpc_found = True
+                        # VPCを軌道の中心として設定
+                        if self.orbit_center is None:
+                            self.orbit_center = [icon.rect.centerx, icon.rect.centery]
+                        
+                        # 軌道中心の更新（VPCの位置に徐々に追従）
+                        target_center = [icon.rect.centerx, icon.rect.centery]
+                        self.orbit_center = [
+                            self.orbit_center[0] + (target_center[0] - self.orbit_center[0]) * 0.01,
+                            self.orbit_center[1] + (target_center[1] - self.orbit_center[1]) * 0.01
+                        ]
+                        
+                        # 軌道上の目標位置を計算
+                        self.orbit_angle += self.orbit_speed * self.orbit_direction
+                        target_x = self.orbit_center[0] + math.cos(self.orbit_angle) * self.orbit_radius
+                        target_y = self.orbit_center[1] + math.sin(self.orbit_angle) * self.orbit_radius
+                        
+                        # 目標位置への方向ベクトルを計算
+                        dx = target_x - self.rect.centerx
+                        dy = target_y - self.rect.centery
+                        distance = math.sqrt(dx*dx + dy*dy)
+                        
+                        if distance > 0:  # 0除算を防ぐ
+                            # 目標位置に向かって移動
+                            speed = min(distance * 0.1, max_rds_speed)  # 距離に応じた速度（最大値制限）
+                            direction_x = dx / distance
+                            direction_y = dy / distance
+                            self.velocity = [direction_x * speed, direction_y * speed]
+                        
+                        # 依存関係の満足状態を更新
+                        if self._is_near(icon, 150):
+                            self.dependency_satisfied = True
+                        break
+            
+            # VPCが見つからない場合、中央に向かう
+            if not vpc_found:
+                self.dependency_satisfied = False
+                center_x = GAME_AREA_WIDTH / 2
+                center_y = SCREEN_HEIGHT / 2
+                
+                # 軌道中心を画面中央に設定
+                if self.orbit_center is None:
+                    self.orbit_center = [center_x, center_y]
+                
+                # 軌道中心の更新（画面中央に徐々に移動）
+                self.orbit_center = [
+                    self.orbit_center[0] + (center_x - self.orbit_center[0]) * 0.01,
+                    self.orbit_center[1] + (center_y - self.orbit_center[1]) * 0.01
+                ]
+                
+                # 軌道上の目標位置を計算
+                self.orbit_angle += self.orbit_speed * self.orbit_direction
+                target_x = self.orbit_center[0] + math.cos(self.orbit_angle) * self.orbit_radius
+                target_y = self.orbit_center[1] + math.sin(self.orbit_angle) * self.orbit_radius
+                
+                # 目標位置への方向ベクトルを計算
+                dx = target_x - self.rect.centerx
+                dy = target_y - self.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance > 0:  # 0除算を防ぐ
+                    # 目標位置に向かって移動
+                    speed = min(distance * 0.1, max_rds_speed)  # 距離に応じた速度（最大値制限）
+                    direction_x = dx / distance
+                    direction_y = dy / distance
+                    self.velocity = [direction_x * speed, direction_y * speed]
+            
+            # 時々バックアップ状態に移行（データベースバックアップを表現）
+            if self.rds_state == 'normal' and random.random() < 0.005:  # 0.5%の確率でバックアップ状態に移行
+                self.rds_state = 'backup'
+                self.state_timer = 0
+                # バックアップ中は一時的に速度を下げる
+                self.velocity = [v * 0.3 for v in self.velocity]
+            
+            # バックアップ状態の処理
+            if self.rds_state == 'backup':
+                # バックアップ中は速度を低く保つ
+                self.velocity = [v * 0.95 for v in self.velocity]
+                
+                # タイマー更新
+                self.state_timer += 1
+                
+                # バックアップ終了判定（約2秒）
+                if self.state_timer >= 120:
+                    self.rds_state = 'normal'
+                    self.state_timer = 0
+        
+        elif self.service_type == "CloudFront":
+            # CloudFront: 広範囲をカバーする動き、S3の近くに留まろうとする傾向
+            
+            # CloudFrontの状態管理（初期化）
+            if not hasattr(self, 'cloudfront_state'):
+                self.cloudfront_state = 'normal'  # 'normal', 'distribute'
+                self.state_timer = 0
+                self.target_s3 = None
+                self.distribution_points = []
+                self.current_point_index = 0
+                self.point_reached = False
+                self.distribution_speed = 3.0
+                self.normal_speed = 1.8
+            
+            # 基本速度を中高速に保つ（CDNの高速性を表現）
+            max_cf_speed = self.distribution_speed if self.cloudfront_state == 'distribute' else self.normal_speed
+            current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+            
+            # 現在の速度が最大速度を超えている場合、速度を下げる
+            if current_speed > max_cf_speed and current_speed > 0:
+                ratio = max_cf_speed / current_speed
+                self.velocity = [v * ratio for v in self.velocity]
+            
+            # 状態に応じた動作
+            if self.cloudfront_state == 'normal':
+                # 通常状態: 広範囲をカバーする動き、S3を探す
+                
+                # S3を探して近くに留まろうとする動き
+                s3_found = False
+                if all_icons:
+                    for icon in all_icons:
+                        if icon.service_type == "S3":
+                            s3_found = True
+                            self.target_s3 = icon
+                            
+                            # S3との距離を計算
+                            dx = icon.rect.centerx - self.rect.centerx
+                            dy = icon.rect.centery - self.rect.centery
+                            distance = math.sqrt(dx*dx + dy*dy)
+                            
+                            if distance > 0:  # 0除算を防ぐ
+                                # 距離に応じた引力の調整
+                                if distance > 200:
+                                    # 遠い場合は強い引力
+                                    attraction = 0.1
+                                    direction_x = dx / distance
+                                    direction_y = dy / distance
+                                    self.velocity[0] += direction_x * attraction
+                                    self.velocity[1] += direction_y * attraction
+                                elif distance > 100:
+                                    # 中距離の場合は弱い引力
+                                    attraction = 0.05
+                                    direction_x = dx / distance
+                                    direction_y = dy / distance
+                                    self.velocity[0] += direction_x * attraction
+                                    self.velocity[1] += direction_y * attraction
+                            
+                            # S3の近くにいる場合、時々配信状態に移行
+                            if distance < 150 and random.random() < 0.01:  # 1%の確率で配信状態に移行
+                                self.cloudfront_state = 'distribute'
+                                self.state_timer = 0
+                                
+                                # 配信ポイントを生成（画面の四隅付近にランダムに配置）
+                                self.distribution_points = []
+                                num_points = random.randint(3, 5)  # 3〜5箇所の配信ポイント
+                                
+                                # 画面を4つの領域に分割し、各領域にポイントを配置
+                                regions = [
+                                    (0, 0, GAME_AREA_WIDTH/2, SCREEN_HEIGHT/2),  # 左上
+                                    (GAME_AREA_WIDTH/2, 0, GAME_AREA_WIDTH, SCREEN_HEIGHT/2),  # 右上
+                                    (0, SCREEN_HEIGHT/2, GAME_AREA_WIDTH/2, SCREEN_HEIGHT),  # 左下
+                                    (GAME_AREA_WIDTH/2, SCREEN_HEIGHT/2, GAME_AREA_WIDTH, SCREEN_HEIGHT)  # 右下
+                                ]
+                                
+                                # 使用する領域をランダムに選択
+                                selected_regions = random.sample(regions, min(num_points, len(regions)))
+                                
+                                # 各領域内にランダムなポイントを生成
+                                for region in selected_regions:
+                                    x = random.uniform(region[0] + 50, region[2] - 50)
+                                    y = random.uniform(region[1] + 50, region[3] - 50)
+                                    self.distribution_points.append((x, y))
+                                
+                                # 最初のポイントへ向かう
+                                self.current_point_index = 0
+                                self.point_reached = False
+                            break
+                
+                # S3が見つからない場合、広範囲をカバーする動き
+                if not s3_found:
+                    # 時々方向を変える（広範囲をカバー）
+                    if random.random() < 0.03:  # 3%の確率で方向転換
+                        angle_change = random.uniform(-math.pi/4, math.pi/4)  # ±45度
+                        speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+                        if speed > 0:
+                            current_angle = math.atan2(self.velocity[1], self.velocity[0])
+                            new_angle = current_angle + angle_change
+                            self.velocity = [
+                                math.cos(new_angle) * speed,
+                                math.sin(new_angle) * speed
+                            ]
+                    
+                    # 画面端に近づくと反射角度を大きくする（中央に戻りやすくする）
+                    edge_margin = 100
+                    if (self.rect.left < edge_margin or 
+                        self.rect.right > GAME_AREA_WIDTH - edge_margin or 
+                        self.rect.top < edge_margin or 
+                        self.rect.bottom > SCREEN_HEIGHT - edge_margin):
+                        
+                        # 画面中央への方向ベクトル
+                        center_x = GAME_AREA_WIDTH / 2
+                        center_y = SCREEN_HEIGHT / 2
+                        dx = center_x - self.rect.centerx
+                        dy = center_y - self.rect.centery
+                        distance = math.sqrt(dx*dx + dy*dy)
+                        
+                        if distance > 0:  # 0除算を防ぐ
+                            # 中央方向への引力
+                            attraction = 0.05
+                            direction_x = dx / distance
+                            direction_y = dy / distance
+                            self.velocity[0] += direction_x * attraction
+                            self.velocity[1] += direction_y * attraction
+            
+            elif self.cloudfront_state == 'distribute':
+                # 配信状態: 配信ポイントを順番に巡回
+                
+                if self.distribution_points and self.current_point_index < len(self.distribution_points):
+                    # 現在の目標ポイント
+                    target_x, target_y = self.distribution_points[self.current_point_index]
+                    
+                    # 目標ポイントへの方向ベクトルを計算
+                    dx = target_x - self.rect.centerx
+                    dy = target_y - self.rect.centery
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if distance > 0:  # 0除算を防ぐ
+                        # 高速で移動（コンテンツ配信の高速性を表現）
+                        speed = self.distribution_speed
+                        direction_x = dx / distance
+                        direction_y = dy / distance
+                        self.velocity = [direction_x * speed, direction_y * speed]
+                    
+                    # ポイントに到達したら次のポイントへ
+                    if distance < 20:
+                        self.current_point_index += 1
+                        
+                        # すべてのポイントを巡回したら、S3に戻る
+                        if self.current_point_index >= len(self.distribution_points):
+                            if self.target_s3 and self.target_s3 in all_icons:
+                                # S3への方向ベクトルを計算
+                                dx = self.target_s3.rect.centerx - self.rect.centerx
+                                dy = self.target_s3.rect.centery - self.rect.centery
+                                distance = math.sqrt(dx*dx + dy*dy)
+                                
+                                if distance > 0:  # 0除算を防ぐ
+                                    # 高速で移動（コンテンツ取得の高速性を表現）
+                                    speed = self.distribution_speed
+                                    direction_x = dx / distance
+                                    direction_y = dy / distance
+                                    self.velocity = [direction_x * speed, direction_y * speed]
+                            else:
+                                # S3が見つからない場合、通常状態に戻る
+                                self.cloudfront_state = 'normal'
+                                self.state_timer = 0
+                else:
+                    # S3に戻った後、通常状態に移行
+                    if self.target_s3 and self.target_s3 in all_icons:
+                        dx = self.target_s3.rect.centerx - self.rect.centerx
+                        dy = self.target_s3.rect.centery - self.rect.centery
+                        distance = math.sqrt(dx*dx + dy*dy)
+                        
+                        if distance < 50:  # S3に十分近づいたら通常状態に戻る
+                            self.cloudfront_state = 'normal'
+                            self.state_timer = 0
+                            
+                            # S3との相互作用を記録
+                            self.last_interaction = self.target_s3
+                            self.interaction_timer = 30
+                            if hasattr(self.target_s3, 'last_interaction'):
+                                self.target_s3.last_interaction = self
+                                self.target_s3.interaction_timer = 30
+                    else:
+                        # S3が見つからない場合、通常状態に戻る
+                        self.cloudfront_state = 'normal'
+                        self.state_timer = 0
+        
+        elif self.service_type == "IAM":
+            # IAM: 中央に留まる傾向、他のサービスとの接続はしない
+            
+            # IAMの状態管理（初期化）
+            if not hasattr(self, 'iam_state'):
+                self.iam_state = 'central'
+                self.central_position = [GAME_AREA_WIDTH / 2, SCREEN_HEIGHT / 2]
+                self.central_radius = random.randint(30, 80)  # 中央付近での移動半径
+                self.central_angle = random.uniform(0, 2 * math.pi)
+                self.central_speed = random.uniform(0.005, 0.015)  # 角速度（ラジアン/フレーム）
+                self.central_direction = random.choice([1, -1])  # 1: 時計回り, -1: 反時計回り
+            
+            # 速度を低めに保つ（安定したサービスを表現）
+            max_iam_speed = 1.2  # IAMの最大速度
+            current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+            
+            # 現在の速度が最大速度を超えている場合、速度を下げる
+            if current_speed > max_iam_speed and current_speed > 0:
+                ratio = max_iam_speed / current_speed
+                self.velocity = [v * ratio for v in self.velocity]
+            
+            # 中央付近での軌道運動
+            self.central_angle += self.central_speed * self.central_direction
+            target_x = self.central_position[0] + math.cos(self.central_angle) * self.central_radius
+            target_y = self.central_position[1] + math.sin(self.central_angle) * self.central_radius
+            
+            # 目標位置への方向ベクトルを計算
+            dx = target_x - self.rect.centerx
+            dy = target_y - self.rect.centery
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance > 0:  # 0除算を防ぐ
+                # 目標位置に向かって移動
+                speed = min(distance * 0.1, max_iam_speed)  # 距離に応じた速度（最大値制限）
+                direction_x = dx / distance
+                direction_y = dy / distance
+                self.velocity = [direction_x * speed, direction_y * speed]
+            
+            # 画面中央から大きく離れないようにする強い引力
+            center_x = GAME_AREA_WIDTH / 2
+            center_y = SCREEN_HEIGHT / 2
+            dx = center_x - self.rect.centerx
+            dy = center_y - self.rect.centery
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance > 200:  # 中央から200px以上離れた場合
+                # 強い中央への引力
+                attraction = 0.1
+                direction_x = dx / distance
+                direction_y = dy / distance
+                self.velocity[0] += direction_x * attraction
+                self.velocity[1] += direction_y * attraction
     
     def _is_near(self, other_icon, distance):
         """他のアイコンが指定した距離内にあるかを確認"""
