@@ -1298,8 +1298,9 @@ class UIPanel:
         
         y_offset += 30
         controls = [
-            "Left Click: Place icon",
-            "Right Click: Select icon",
+            "Left Click (empty): Place icon",
+            "Left Click (on icon): Select icon",
+            "Left Click+Drag: Move icon",
             "Middle Click+Drag: Direct control",
             "Space: Random placement",
             "ESC: Exit"
@@ -1363,25 +1364,32 @@ class Game:
                 # UIパネル外（ゲームエリア内）のみ処理
                 if event.pos[0] < GAME_AREA_WIDTH:
                     if event.button == 1:  # 左クリック
-                        # クリック位置に新しいアイコンを追加
-                        service = random.choice(AWS_ICONS)
-                        icon = AWSIcon(service, event.pos)
-                        self.all_icons.add(icon)
+                        # アイコンがあればドラッグ操作を開始、なければ新しいアイコンを配置
+                        if not self._start_drag_control(event.pos):
+                            # クリック位置にアイコンがなければ新しいアイコンを追加
+                            service = random.choice(AWS_ICONS)
+                            icon = AWSIcon(service, event.pos)
+                            self.all_icons.add(icon)
                     elif event.button == 2:  # 中クリック（ホイールクリック）
                         # アイコンの選択と直接操作モードの開始
                         self._select_icon_for_direct_control(event.pos)
-                    elif event.button == 3:  # 右クリック
-                        # アイコンの選択
-                        self._select_icon_at_position(event.pos)
             elif event.type == MOUSEMOTION:
                 # マウス移動時の処理
-                if hasattr(self, 'direct_control_icon') and self.direct_control_icon:
+                buttons = pygame.mouse.get_pressed()
+                if buttons[0] and self.selected_icon:  # 左ボタンが押されていて、アイコンが選択されている場合
+                    # 直接操作モードを開始
+                    self.direct_control_icon = self.selected_icon
+                    # アイコンをマウス位置に移動
+                    self.direct_control_icon.rect.center = event.pos
+                    # 速度をリセット（マウスで直接操作中は自動移動しない）
+                    self.direct_control_icon.velocity = [0, 0]
+                elif hasattr(self, 'direct_control_icon') and self.direct_control_icon:
                     # 直接操作モードの場合、アイコンをマウス位置に移動
                     self.direct_control_icon.rect.center = event.pos
                     # 速度をリセット（マウスで直接操作中は自動移動しない）
                     self.direct_control_icon.velocity = [0, 0]
             elif event.type == MOUSEBUTTONUP:
-                if event.button == 2:  # 中クリック（ホイールクリック）リリース
+                if event.button == 1 or event.button == 2:  # 左クリックまたは中クリックリリース
                     # 直接操作モードの終了
                     if hasattr(self, 'direct_control_icon') and self.direct_control_icon:
                         # 新しいランダムな速度を設定
@@ -1398,6 +1406,35 @@ class Game:
         # 以前の選択をクリア
         if self.selected_icon:
             self.selected_icon.selected = False
+        
+        self.selected_icon = None
+        self.direct_control_icon = None
+        
+        # 位置にあるアイコンを探す
+        for icon in self.all_icons:
+            if icon.rect.collidepoint(position):
+                icon.selected = True
+                self.selected_icon = icon
+                self.direct_control_icon = icon  # 直接操作対象として設定
+                break
+    
+    def _start_drag_control(self, position):
+        """指定位置のアイコンを選択してドラッグ操作を開始。アイコンがあればTrue、なければFalseを返す"""
+        # 以前の選択をクリア
+        if self.selected_icon:
+            self.selected_icon.selected = False
+        
+        self.selected_icon = None
+        self.direct_control_icon = None
+        
+        # 位置にあるアイコンを探す
+        for icon in self.all_icons:
+            if icon.rect.collidepoint(position):
+                icon.selected = True
+                self.selected_icon = icon
+                # マウスが動いた場合のみ直接操作対象として設定（クリックのみの場合は情報表示のみ）
+                return True
+        return False
         
         self.selected_icon = None
         self.direct_control_icon = None
