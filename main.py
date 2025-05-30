@@ -465,6 +465,116 @@ class AWSIcon(pygame.sprite.Sprite):
                     self.velocity[1] += direction_y * attraction
             
             # 他のサービスを引き寄せる効果はEC2、RDS、Lambda側で実装
+        
+        elif self.service_type == "Lambda":
+            # Lambda: 素早く不規則な動き、短い距離を素早く移動して停止するパターン
+            
+            # Lambdaの状態管理（初期化）
+            if not hasattr(self, 'lambda_state'):
+                self.lambda_state = 'idle'  # 'idle', 'burst', 'cooldown'
+                self.state_timer = 0
+                self.burst_direction = [0, 0]
+                self.burst_duration = 0
+                self.cooldown_duration = 0
+            
+            # 状態に応じた動作
+            if self.lambda_state == 'idle':
+                # アイドル状態: ゆっくり動く、バーストの準備
+                
+                # 速度を低めに保つ
+                max_idle_speed = 0.8
+                current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+                if current_speed > max_idle_speed and current_speed > 0:
+                    ratio = max_idle_speed / current_speed
+                    self.velocity = [v * ratio for v in self.velocity]
+                
+                # 時々方向を変える
+                if random.random() < 0.1:  # 10%の確率で方向転換
+                    angle = random.uniform(0, 2 * math.pi)
+                    speed = random.uniform(0.3, 0.8)
+                    self.velocity = [
+                        math.cos(angle) * speed,
+                        math.sin(angle) * speed
+                    ]
+                
+                # バースト状態に移行する確率
+                if random.random() < 0.03:  # 3%の確率でバースト状態に移行
+                    self.lambda_state = 'burst'
+                    self.state_timer = 0
+                    
+                    # バーストの方向と速度を決定
+                    angle = random.uniform(0, 2 * math.pi)
+                    speed = random.uniform(3.0, 5.0)  # 高速
+                    self.burst_direction = [
+                        math.cos(angle) * speed,
+                        math.sin(angle) * speed
+                    ]
+                    
+                    # バーストの持続時間を決定（10〜20フレーム = 約0.2〜0.3秒）
+                    self.burst_duration = random.randint(10, 20)
+            
+            elif self.lambda_state == 'burst':
+                # バースト状態: 高速で直線移動
+                
+                # バースト方向に高速移動
+                self.velocity = self.burst_direction.copy()
+                
+                # タイマー更新
+                self.state_timer += 1
+                
+                # バースト終了判定
+                if self.state_timer >= self.burst_duration:
+                    self.lambda_state = 'cooldown'
+                    self.state_timer = 0
+                    self.velocity = [0, 0]  # 停止
+                    
+                    # クールダウン時間を決定（30〜60フレーム = 約0.5〜1秒）
+                    self.cooldown_duration = random.randint(30, 60)
+            
+            elif self.lambda_state == 'cooldown':
+                # クールダウン状態: 停止または非常に遅い動き
+                
+                # 速度を非常に低く保つ
+                self.velocity = [v * 0.9 for v in self.velocity]
+                
+                # タイマー更新
+                self.state_timer += 1
+                
+                # クールダウン終了判定
+                if self.state_timer >= self.cooldown_duration:
+                    self.lambda_state = 'idle'
+                    self.state_timer = 0
+                    
+                    # アイドル状態に戻る際の初期速度
+                    angle = random.uniform(0, 2 * math.pi)
+                    speed = random.uniform(0.3, 0.8)
+                    self.velocity = [
+                        math.cos(angle) * speed,
+                        math.sin(angle) * speed
+                    ]
+            
+            # IAMを探して近くに留まろうとする動き（依存関係）
+            if all_icons and not self.is_stopped:
+                for icon in all_icons:
+                    if icon.service_type == "IAM":
+                        # IAMとの距離を計算
+                        dx = icon.rect.centerx - self.rect.centerx
+                        dy = icon.rect.centery - self.rect.centery
+                        distance = math.sqrt(dx*dx + dy*dy)
+                        
+                        if distance > 0:  # 0除算を防ぐ
+                            # 距離が300px以上の場合、IAMに向かって引き寄せられる
+                            if distance > 300:
+                                # 引力の強さ（距離に反比例）
+                                attraction = 0.1
+                                # 正規化した方向ベクトル
+                                direction_x = dx / distance
+                                direction_y = dy / distance
+                                
+                                # 速度に引力を加える（バースト中は引力の影響を受けない）
+                                if self.lambda_state != 'burst':
+                                    self.velocity[0] += direction_x * attraction
+                                    self.velocity[1] += direction_y * attraction
     
     def _is_near(self, other_icon, distance):
         """他のアイコンが指定した距離内にあるかを確認"""
