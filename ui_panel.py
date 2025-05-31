@@ -118,7 +118,7 @@ class UIPanel:
             "Left Click (empty): Place icon",
             "Left Click (on icon): Select icon",
             "Left Click+Drag: Move icon",
-            "Space: Random placement",
+            "Space: Place random icon",
             "ESC: Exit"
         ]
         
