@@ -103,7 +103,7 @@ class ProgressSystem:
                         if not self.complementary_achievements[achievement_key]["achieved"]:
                             self.complementary_achievements[achievement_key]["achieved"] = True
                             description = self.complementary_achievements[achievement_key]["description"]
-                            self.add_notification(f"Complementary Relation Achieved: {description}")
+                            self.add_notification(f"Complementary Relation: {description}")
                         return
     
     def add_notification(self, message):
@@ -154,9 +154,9 @@ class ProgressSystem:
         total_achieved, total_total = self.get_total_achievement_rate()
         
         # 達成率テキスト
-        achievement_text = f"Total Achievement: {total_achieved}/{total_total}"
+        achievement_text = f"Achievements: {total_achieved}/{total_total}"
         dep_text = f"Dependencies: {dep_achieved}/{dep_total}"
-        comp_text = f"Complementary: {comp_achieved}/{comp_total}"
+        comp_text = f"Complementary Relations: {comp_achieved}/{comp_total}"
         
         # テキスト描画
         text_color = (50, 50, 50)
