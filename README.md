@@ -10,8 +10,8 @@ AWSのアイコンたちが生命体のように画面上を動き回り、相�
 
 1. リポジトリをクローン
 ```
-git clone https://github.com/yourusername/q-cli-game.git
-cd q-cli-game
+git clone https://github.com/sho-saito/aws-icon-life-game.git
+cd aws-icon-life-game
 ```
 
 2. Python仮想環境の作成と有効化
