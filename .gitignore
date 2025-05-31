@@ -1,0 +1,31 @@
+# Python キャッシュファイル
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 仮想環境
+venv/
+env/
+ENV/
+
+# IDE関連
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS関連
+.DS_Store
+Thumbs.db
+
+# ログファイル
+*.log
+
+# ローカル設定ファイル
+.env
+.env.local
+
+# ビルド関連
+build/
+dist/
+*.egg-info/
