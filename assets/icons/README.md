@@ -4,16 +4,16 @@
 
 ## 使用アイコン一覧
 
-- `ec2.png` - Amazon EC2
-- `s3.png` - Amazon S3
-- `vpc.png` - Amazon VPC
-- `lambda.png` - AWS Lambda
-- `ebs.png` - Amazon EBS
-- `rds.png` - Amazon RDS
-- `iam.png` - AWS IAM
-- `dynamodb.png` - Amazon DynamoDB
 - `api gateway.png` - Amazon API Gateway
 - `cloudfront.png` - Amazon CloudFront
+- `dynamodb.png` - Amazon DynamoDB
+- `ebs.png` - Amazon EBS
+- `ec2.png` - Amazon EC2
+- `iam.png` - AWS IAM
+- `lambda.png` - AWS Lambda
+- `rds.png` - Amazon RDS
+- `s3.png` - Amazon S3
+- `vpc.png` - Amazon VPC
 
 ## アイコンの取得方法
 
