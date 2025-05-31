@@ -1,5 +1,7 @@
 # AWS Icon Life
 
+![AWS Icon Life Game Demo](aws-icon-life-game.gif)
+
 AWSのアイコンたちが生命体のように画面上を動き回り、相互作用するシミュレーションゲーム。コンウェイのライフゲームにインスパイアされつつ、AWSサービスアイコンが独自の「生態系」を形成します。
 
 ## 概要
