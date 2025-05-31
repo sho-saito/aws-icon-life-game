@@ -29,3 +29,6 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+# アイコン画像ファイル
+assets/icons/*.png
