@@ -221,6 +221,16 @@ class AWSIcon(pygame.sprite.Sprite):
             self.interaction_timer -= 1
     def _apply_movement_pattern(self, all_icons):
         """サービスタイプ固有の動きパターンを適用"""
+        if self.service_type == "API Gateway":
+            # API Gatewayの振る舞いを管理
+            self._api_gateway_behavior(all_icons)
+            return
+            
+        if self.service_type == "Lambda":
+            # Lambdaの振る舞いを管理
+            self._lambda_behavior(all_icons)
+            return
+            
         if self.service_type == "EC2":
             # EC2: 比較的直線的な動き、VPCの近くに留まろうとする傾向
             
@@ -449,3 +459,271 @@ class AWSIcon(pygame.sprite.Sprite):
                 self.last_interaction.rect.center,
                 2
             )
+    # API GatewayとLambdaの相互作用を管理するメソッド
+    def _api_gateway_behavior(self, all_icons):
+        """API Gatewayの振る舞いを管理する"""
+        # API Gatewayの場合のみ実行
+        if self.service_type != "API Gateway":
+            return
+            
+        # API Gatewayの状態管理（初期化）
+        if not hasattr(self, 'api_state'):
+            self.api_state = 'patrol'  # 'patrol', 'connect', 'return'
+            self.state_timer = 0
+            self.target_lambda = None
+            self.original_position = [self.rect.centerx, self.rect.centery]
+            self.patrol_axis = random.choice(['x', 'y'])  # パトロール軸（x軸またはy軸）
+            self.patrol_direction = random.choice([1, -1])  # パトロール方向（1: 正方向, -1: 負方向）
+            self.patrol_range = [100, GAME_AREA_WIDTH - 100]  # パトロール範囲（x軸）
+            if self.patrol_axis == 'y':
+                self.patrol_range = [100, SCREEN_HEIGHT - 100]  # パトロール範囲（y軸）
+            
+        # 状態に応じた動作
+        if self.api_state == 'patrol':
+            # パトロール状態: 画面端付近を行き来する
+            
+            # 速度を中程度に保つ
+            max_patrol_speed = 1.5
+            
+            # パトロール軸に沿って移動
+            if self.patrol_axis == 'x':
+                # x軸に沿ってパトロール
+                self.velocity = [max_patrol_speed * self.patrol_direction, 0]
+                
+                # 範囲の端に到達したら方向転換
+                if (self.rect.right >= self.patrol_range[1] and self.patrol_direction > 0) or \
+                   (self.rect.left <= self.patrol_range[0] and self.patrol_direction < 0):
+                    self.patrol_direction *= -1
+            else:
+                # y軸に沿ってパトロール
+                self.velocity = [0, max_patrol_speed * self.patrol_direction]
+                
+                # 範囲の端に到達したら方向転換
+                if (self.rect.bottom >= self.patrol_range[1] and self.patrol_direction > 0) or \
+                   (self.rect.top <= self.patrol_range[0] and self.patrol_direction < 0):
+                    self.patrol_direction *= -1
+            
+            # Lambdaを探して接続状態に移行
+            if all_icons and random.random() < 0.02:  # 2%の確率でLambda探索
+                lambda_icons = [icon for icon in all_icons if icon.service_type == "Lambda"]
+                if lambda_icons:
+                    # 制限を解除: 他のAPI Gatewayが接続しているLambdaも対象に含める
+                    # ランダムにLambdaを選択
+                    self.target_lambda = random.choice(lambda_icons)
+                    self.api_state = 'connect'
+                    self.state_timer = 0
+                    # 現在位置を記憶
+                    self.original_position = [self.rect.centerx, self.rect.centery]
+        
+        elif self.api_state == 'connect':
+            # 接続状態: 選択したLambdaに向かって移動
+            
+            if self.target_lambda and self.target_lambda in all_icons:
+                # Lambdaへの方向ベクトルを計算
+                dx = self.target_lambda.rect.centerx - self.rect.centerx
+                dy = self.target_lambda.rect.centery - self.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance > 0:  # 0除算を防ぐ
+                    # 高速で移動（APIリクエストの転送を表現）
+                    speed = 4.0
+                    direction_x = dx / distance
+                    direction_y = dy / distance
+                    self.velocity = [direction_x * speed, direction_y * speed]
+                
+                # Lambdaに到達したら戻り状態に移行
+                if distance < 30:
+                    self.api_state = 'return'
+                    self.state_timer = 0
+                    
+                    # Lambdaとの相互作用を記録
+                    self.last_interaction = self.target_lambda
+                    self.interaction_timer = 30
+                    if hasattr(self.target_lambda, 'last_interaction'):
+                        self.target_lambda.last_interaction = self
+                        self.target_lambda.interaction_timer = 30
+            else:
+                # ターゲットのLambdaが見つからない場合、パトロール状態に戻る
+                self.api_state = 'patrol'
+                self.target_lambda = None
+        
+        elif self.api_state == 'return':
+            # 戻り状態: 元の位置に戻る
+            
+            # 元の位置への方向ベクトルを計算
+            dx = self.original_position[0] - self.rect.centerx
+            dy = self.original_position[1] - self.rect.centery
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance > 0:  # 0除算を防ぐ
+                # 高速で移動（APIレスポンスの返送を表現）
+                speed = 3.0
+                direction_x = dx / distance
+                direction_y = dy / distance
+                self.velocity = [direction_x * speed, direction_y * speed]
+            
+            # 元の位置に到達したらパトロール状態に戻る
+            if distance < 20:
+                self.api_state = 'patrol'
+                self.state_timer = 0
+                self.target_lambda = None
+                
+                # パトロール方向をランダムに変更
+                if random.random() < 0.5:
+                    self.patrol_direction *= -1
+                
+                # 時々パトロール軸を変更
+                if random.random() < 0.3:
+                    self.patrol_axis = 'x' if self.patrol_axis == 'y' else 'y'
+                    self.patrol_range = [100, GAME_AREA_WIDTH - 100]  # パトロール範囲（x軸）
+                    if self.patrol_axis == 'y':
+                        self.patrol_range = [100, SCREEN_HEIGHT - 100]  # パトロール範囲（y軸）
+    def _lambda_behavior(self, all_icons):
+        """Lambdaの振る舞いを管理する"""
+        # Lambdaの場合のみ実行
+        if self.service_type != "Lambda":
+            return
+            
+        # Lambdaの状態管理（初期化）
+        if not hasattr(self, 'lambda_state'):
+            self.lambda_state = 'normal'  # 'normal', 'active', 'burst'
+            self.state_timer = 0
+            self.burst_duration = 0
+            self.target_position = None
+            self.burst_cooldown = 0
+            self.max_burst_cooldown = random.randint(180, 360)  # 3〜6秒のクールダウン
+            
+        # 基本速度を設定
+        base_speed = 1.5  # 通常状態の基本速度
+        
+        # 状態に応じた動作
+        if self.lambda_state == 'normal':
+            # 通常状態: 比較的ランダムな動き
+            
+            # 方向転換の確率を高く設定（ランダムな動きを表現）
+            if random.random() < 0.05:  # 5%の確率で方向転換（EC2の2.5倍）
+                angle = random.uniform(0, 2 * math.pi)
+                speed = random.uniform(1.0, 2.0)  # 速度もランダムに変化
+                self.velocity = [
+                    math.cos(angle) * speed,
+                    math.sin(angle) * speed
+                ]
+            
+            # 時々急加速する（バースト状態に移行）
+            if random.random() < 0.01 and self.burst_cooldown <= 0:  # 1%の確率でバースト
+                self.lambda_state = 'burst'
+                self.state_timer = 0
+                self.burst_duration = random.randint(60, 120)  # 1〜2秒のバースト
+                
+                # ランダムな目標位置を設定（画面内）
+                target_x = random.randint(50, GAME_AREA_WIDTH - 50)
+                target_y = random.randint(50, SCREEN_HEIGHT - 50)
+                self.target_position = [target_x, target_y]
+                
+                # IAMアイコンが近くにある場合は、そちらに向かう確率を高める
+                if all_icons:
+                    iam_icons = [icon for icon in all_icons if icon.service_type == "IAM"]
+                    if iam_icons and random.random() < 0.4:  # 40%の確率でIAMに向かう
+                        iam_icon = random.choice(iam_icons)
+                        self.target_position = [iam_icon.rect.centerx, iam_icon.rect.centery]
+            
+            # API Gatewayが近くにある場合、アクティブ状態に移行
+            if all_icons:
+                api_gateways = [icon for icon in all_icons if icon.service_type == "API Gateway"]
+                for api in api_gateways:
+                    if self._is_near(api, 100):  # 100px以内にAPI Gatewayがある
+                        self.lambda_state = 'active'
+                        self.state_timer = 0
+                        break
+            
+            # クールダウンの更新
+            if self.burst_cooldown > 0:
+                self.burst_cooldown -= 1
+                
+        elif self.lambda_state == 'active':
+            # アクティブ状態: API Gatewayとの相互作用中
+            
+            # 速度を上げる（処理中の高負荷を表現）
+            current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+            target_speed = 2.0  # アクティブ状態の目標速度
+            
+            if current_speed > 0:
+                # 現在の速度を目標速度に調整
+                ratio = target_speed / current_speed
+                self.velocity = [v * ratio for v in self.velocity]
+            
+            # 方向をより頻繁に変える（忙しい動きを表現）
+            if random.random() < 0.1:  # 10%の確率で方向転換
+                angle_change = random.uniform(-math.pi/2, math.pi/2)  # ±90度
+                speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+                if speed > 0:
+                    current_angle = math.atan2(self.velocity[1], self.velocity[0])
+                    new_angle = current_angle + angle_change
+                    self.velocity = [
+                        math.cos(new_angle) * speed,
+                        math.sin(new_angle) * speed
+                    ]
+            
+            # 状態タイマーの更新
+            self.state_timer += 1
+            
+            # 一定時間経過後、通常状態に戻る
+            if self.state_timer > 120:  # 2秒後
+                self.lambda_state = 'normal'
+                self.state_timer = 0
+                
+        elif self.lambda_state == 'burst':
+            # バースト状態: 高速で目標位置に向かう
+            
+            if self.target_position:
+                # 目標位置への方向ベクトルを計算
+                dx = self.target_position[0] - self.rect.centerx
+                dy = self.target_position[1] - self.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance > 0:  # 0除算を防ぐ
+                    # 高速で移動（バーストの高速性を表現）
+                    speed = 5.0
+                    direction_x = dx / distance
+                    direction_y = dy / distance
+                    self.velocity = [direction_x * speed, direction_y * speed]
+            
+            # バースト時間の更新
+            self.state_timer += 1
+            
+            # バースト終了判定
+            if self.state_timer >= self.burst_duration:
+                self.lambda_state = 'normal'
+                self.state_timer = 0
+                self.burst_cooldown = self.max_burst_cooldown  # クールダウン開始
+                
+        # IAMアイコンとの関係（依存関係）
+        if all_icons:
+            iam_icons = [icon for icon in all_icons if icon.service_type == "IAM"]
+            if iam_icons:
+                # 最も近いIAMを探す
+                closest_iam = None
+                min_distance = float('inf')
+                
+                for icon in iam_icons:
+                    dx = icon.rect.centerx - self.rect.centerx
+                    dy = icon.rect.centery - self.rect.centery
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if distance < min_distance:
+                        min_distance = distance
+                        closest_iam = icon
+                
+                # 最も近いIAMが見つかった場合、その方向に弱い引力
+                if closest_iam:
+                    dx = closest_iam.rect.centerx - self.rect.centerx
+                    dy = closest_iam.rect.centery - self.rect.centery
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if distance > 200:  # 200px以上離れている場合
+                        # 引力の強さ（距離に反比例）
+                        attraction = 0.05
+                        direction_x = dx / distance
+                        direction_y = dy / distance
+                        self.velocity[0] += direction_x * attraction
+                        self.velocity[1] += direction_y * attraction
