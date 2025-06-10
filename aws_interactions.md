@@ -13,6 +13,8 @@
 | RDS | VPC | RDSデータベースはVPC内に存在する必要があります。VPCの近くにいないとRDSの体力が減少します。 |
 | API Gateway | Lambda | API GatewayはLambdaなどのバックエンドがないと機能しません。Lambdaの近くにいないとAPI Gatewayの体力が減少します。 |
 | CloudFront | S3 | CloudFrontはS3などのオリジンがないと配信できません。S3の近くにいないとCloudFrontの体力が減少します。 |
+| EBS | EC2 | EBSはEC2にアタッチされる必要があります。EC2の近くにいないとEBSの体力が減少します。 |
+| DynamoDB | Lambda | DynamoDBはLambdaと連携して使用されることが多いです。Lambdaの近くにいないとDynamoDBの体力が減少します。 |
 
 ## 2. 補完関係 (Complementary)
 
@@ -23,3 +25,11 @@
 | EC2 | EBS | 速度低下、体力回復 | EC2とEBSが接触すると、両方の速度が遅くなり（安定性の向上）、体力が回復します。 |
 | Lambda | DynamoDB | 速度上昇、体力回復 | LambdaとDynamoDBが接触すると、両方の速度が速くなり（効率性の向上）、体力が回復します。 |
 | S3 | CloudFront | CloudFrontの速度上昇 | S3とCloudFrontが接触すると、CloudFrontの速度が速くなります（配信の高速化）。 |
+
+## 3. 特殊な回復メカニズム
+
+特定の条件下で体力が回復する特殊なメカニズムです。
+
+| サービス | 条件 | 効果 | 説明 |
+|---------|------|------|------|
+| VPC | マップ上のVPC数が5個以下 | 体力回復速度上昇 | VPCの数が5個以下の場合、VPCの体力回復速度が通常の4倍（0.2/フレーム）に上昇します。これは希少なVPCの重要性が増すことを表現しています。 |

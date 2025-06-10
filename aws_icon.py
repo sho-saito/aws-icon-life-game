@@ -79,6 +79,12 @@ class AWSIcon(pygame.sprite.Sprite):
         self.overlapping_icons = {}  # {icon_id: icon} 形式で重なっているアイコンを追跡
         self.overlap_duration = {}   # {icon_id: frames} 形式で重なり継続フレーム数を追跡
         self.stuck = False           # スタック状態のフラグ
+        
+        # 動きの追跡（停滞時のHealth減少用）
+        self.previous_position = list(position)  # 前フレームの位置
+        self.stationary_frames = 0  # 停滞しているフレーム数
+        self.movement_threshold = 3.0  # 動きと判断する最小距離（ピクセル）
+        self.max_stationary_frames = 300  # 停滞許容フレーム数（約5秒）
     
     def _set_dependencies(self):
         """サービスの依存関係を設定"""
@@ -94,6 +100,8 @@ class AWSIcon(pygame.sprite.Sprite):
             return ["S3"]
         elif self.service_type == "EBS":
             return ["EC2"]  # EBSはEC2に依存（EC2にアタッチされる）
+        elif self.service_type == "DynamoDB":
+            return ["Lambda"]  # DynamoDBはLambdaに依存
         return []
         
     def _handle_overlap(self, other_icon):
@@ -211,14 +219,59 @@ class AWSIcon(pygame.sprite.Sprite):
             
             # 依存関係が満たされていない場合、体力を減少
             if not self.dependency_satisfied:
-                if self.service_type in ["EC2", "RDS", "API Gateway", "CloudFront"]:
-                    self.health = max(0, self.health - 0.1)
+                if self.service_type in ["EC2", "RDS", "API Gateway", "CloudFront", "DynamoDB"]:
+                    self.health = max(0, self.health - 0.05)  # 依存関係不満足時の減少を緩和
             elif self.health < self.max_health:
                 self.health = min(self.max_health, self.health + 0.05)
         
         # 相互作用タイマーの更新
         if self.interaction_timer > 0:
             self.interaction_timer -= 1
+        
+        # 全アイコン共通の微細なHealth減少（生存コスト）
+        self.health = max(0, self.health - 0.01)
+        
+        # Healthが黄色の域（30-60%）の場合、ランダムな動きを加えて停滞を防ぐ
+        health_ratio = self.health / self.max_health
+        if 0.3 < health_ratio <= 0.6:
+            # 低確率でランダムな力を加える
+            if random.random() < 0.05:  # 5%の確率
+                angle = random.uniform(0, 2 * math.pi)
+                force = random.uniform(0.3, 0.8)  # 適度な力
+                self.velocity[0] += math.cos(angle) * force
+                self.velocity[1] += math.sin(angle) * force
+        
+        # 動きの追跡と停滞時のHealth減少
+        self._check_movement_and_health()
+    
+    def _check_movement_and_health(self):
+        """動きを追跡し、停滞時にHealthを減少させる"""
+        # 現在の位置と前フレームの位置の距離を計算
+        current_pos = [self.rect.centerx, self.rect.centery]
+        distance_moved = math.sqrt(
+            (current_pos[0] - self.previous_position[0])**2 + 
+            (current_pos[1] - self.previous_position[1])**2
+        )
+        
+        # 動きが閾値以下の場合は停滞とみなす
+        if distance_moved < self.movement_threshold:
+            self.stationary_frames += 1
+        else:
+            self.stationary_frames = 0  # 動いた場合はカウンターをリセット
+            
+            # 依存関係を持たないアイコンは動いている間に回復
+            if not self.dependencies and self.health < self.max_health:
+                # 動きの速さに応じて回復量を調整（最大0.05/フレーム）
+                recovery_amount = min(0.05, distance_moved * 0.01)
+                self.health = min(self.max_health, self.health + recovery_amount)
+        
+        # 停滞時間が長すぎる場合はHealthを減少
+        if self.stationary_frames > self.max_stationary_frames:
+            self.health = max(0, self.health - 0.2)  # 停滞時の減少幅をさらに緩和
+        
+        # 前フレームの位置を更新
+        self.previous_position = current_pos.copy()
+    
     def _apply_movement_pattern(self, all_icons):
         """サービスタイプ固有の動きパターンを適用"""
         if self.service_type == "API Gateway":
@@ -405,6 +458,14 @@ class AWSIcon(pygame.sprite.Sprite):
                     direction_y = dy / distance
                     self.velocity[0] += direction_x * attraction
                     self.velocity[1] += direction_y * attraction
+            
+            # VPCの数が5個以下の場合、体力を回復する
+            if all_icons:
+                vpc_count = sum(1 for icon in all_icons if icon.service_type == "VPC")
+                if vpc_count <= 5:
+                    # VPCが少ない場合は回復速度を上げる（希少性による重要性の増加）
+                    recovery_rate = 0.2  # 通常の回復速度より高い
+                    self.health = min(self.max_health, self.health + recovery_rate)
             
             # 他のサービスを引き寄せる効果はEC2、RDS、Lambda側で実装
     def _is_near(self, other_icon, distance_threshold):
@@ -727,3 +788,18 @@ class AWSIcon(pygame.sprite.Sprite):
                         direction_y = dy / distance
                         self.velocity[0] += direction_x * attraction
                         self.velocity[1] += direction_y * attraction
+                        
+            # DynamoDBとの関係（DynamoDBがLambdaに依存する関係を表現）
+            dynamodb_icons = [icon for icon in all_icons if icon.service_type == "DynamoDB"]
+            for dynamodb in dynamodb_icons:
+                # DynamoDBとの距離を計算
+                dx = self.rect.centerx - dynamodb.rect.centerx
+                dy = self.rect.centery - dynamodb.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                # 近くにいる場合は相互作用を記録
+                if distance < 100:
+                    self.last_interaction = dynamodb
+                    self.interaction_timer = 30
+                    dynamodb.last_interaction = self
+                    dynamodb.interaction_timer = 30
