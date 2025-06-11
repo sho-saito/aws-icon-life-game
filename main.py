@@ -110,7 +110,13 @@ class Game:
         # Healthが0になったアイコンを削除
         dead_icons = set()
         for icon in self.all_icons:
-            icon.update(self.all_icons)
+icon.update(self.all_icons)
+        
+        # Healthが0になったアイコンを削除
+        dead_icons = set()
+        for icon in self.all_icons:
+            if icon.health <= 0:
+                dead_icons.add(icon)
             if icon.health <= 0:
                 dead_icons.add(icon)
         
@@ -204,7 +210,39 @@ class Game:
         if (icon1.service_type == "EC2" and icon2.service_type == "EBS") or \
            (icon1.service_type == "EBS" and icon2.service_type == "EC2"):
             # 両方のアイコンの速度を少し遅くする（安定性を表現）
-            icon1.velocity = [v * 0.9 for v in icon1.velocity]
+icon2.rect.top = max(0, min(icon2.rect.top, SCREEN_HEIGHT - icon2.rect.height))
+    def _handle_complementary_relations(self, icon1, icon2):
+        """補完関係の処理"""
+        # Constants for velocity and health adjustments
+        VELOCITY_SLOWDOWN_FACTOR = 0.9
+        HEALTH_RECOVERY_AMOUNT = 0.1
+        VELOCITY_FOLLOW_FACTOR = 0.3
+
+        # EC2とEBSの補完関係
+        if (icon1.service_type == "EC2" and icon2.service_type == "EBS") or \
+           (icon1.service_type == "EBS" and icon2.service_type == "EC2"):
+            # 両方のアイコンの速度を少し遅くする（安定性を表現）
+            icon1.velocity = [v * VELOCITY_SLOWDOWN_FACTOR for v in icon1.velocity]
+            icon2.velocity = [v * VELOCITY_SLOWDOWN_FACTOR for v in icon2.velocity]
+            # 体力を少し回復（過度な回復を防ぐ）
+            icon1.health = min(icon1.max_health, icon1.health + HEALTH_RECOVERY_AMOUNT)
+            icon2.health = min(icon2.max_health, icon2.health + HEALTH_RECOVERY_AMOUNT)
+            
+            # EC2とEBSが近くにいる場合、EBSはEC2に追従する傾向を強める
+            if icon1.service_type == "EC2" and icon2.service_type == "EBS":
+                # EC2の動きにEBSを追従させる
+                icon2.velocity = [
+                    (1 - VELOCITY_FOLLOW_FACTOR) * icon2.velocity[0] + VELOCITY_FOLLOW_FACTOR * icon1.velocity[0],
+                    (1 - VELOCITY_FOLLOW_FACTOR) * icon2.velocity[1] + VELOCITY_FOLLOW_FACTOR * icon1.velocity[1]
+                ]
+            elif icon1.service_type == "EBS" and icon2.service_type == "EC2":
+                # EC2の動きにEBSを追従させる
+                icon1.velocity = [
+                    (1 - VELOCITY_FOLLOW_FACTOR) * icon1.velocity[0] + VELOCITY_FOLLOW_FACTOR * icon2.velocity[0],
+                    (1 - VELOCITY_FOLLOW_FACTOR) * icon1.velocity[1] + VELOCITY_FOLLOW_FACTOR * icon2.velocity[1]
+                ]
+        
+        # LambdaとDynamoDBの補完関係
             icon2.velocity = [v * 0.9 for v in icon2.velocity]
             # 体力を少し回復（過度な回復を防ぐ）
             icon1.health = min(icon1.max_health, icon1.health + 0.1)
