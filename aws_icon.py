@@ -16,6 +16,11 @@ class AWSIcon(pygame.sprite.Sprite):
     STUCK_THRESHOLD = 60    # スタック状態と判断するフレーム数
     STUCK_FORCE_MULTIPLIER = 2.0  # スタック状態での分離力の倍率
     
+    # 体力が黄色の状態での動きに関する定数
+    YELLOW_HEALTH_RANDOM_MOVE_PROBABILITY = 0.05  # ランダムな動きを加える確率
+    YELLOW_HEALTH_MIN_FORCE = 0.3  # 最小の力
+    YELLOW_HEALTH_MAX_FORCE = 0.8  # 最大の力
+    
     def __init__(self, service_type, position, velocity=None):
         super().__init__()
         self.service_type = service_type
@@ -235,9 +240,6 @@ class AWSIcon(pygame.sprite.Sprite):
         health_ratio = self.health / self.max_health
         if 0.3 < health_ratio <= 0.6:
             # 低確率でランダムな力を加える
-health_ratio = self.health / self.max_health
-        if 0.3 < health_ratio <= 0.6:
-            # 低確率でランダムな力を加える
             if random.random() < self.YELLOW_HEALTH_RANDOM_MOVE_PROBABILITY:
                 angle = random.uniform(0, 2 * math.pi)
                 force = random.uniform(self.YELLOW_HEALTH_MIN_FORCE, self.YELLOW_HEALTH_MAX_FORCE)
@@ -255,17 +257,9 @@ health_ratio = self.health / self.max_health
         """動きを追跡し、停滞時にHealthを減少させる"""
         # 現在の位置と前フレームの位置の距離を計算
         current_pos = [self.rect.centerx, self.rect.centery]
-"""動きを追跡し、停滞時にHealthを減少させる"""
-        # 現在の位置と前フレームの位置の距離を計算
-        current_pos = [self.rect.centerx, self.rect.centery]
         distance_moved = math.hypot(
             current_pos[0] - self.previous_position[0],
             current_pos[1] - self.previous_position[1]
-        )
-        
-        # 動きが閾値以下の場合は停滞とみなす
-            (current_pos[0] - self.previous_position[0])**2 + 
-            (current_pos[1] - self.previous_position[1])**2
         )
         
         # 動きが閾値以下の場合は停滞とみなす
@@ -287,7 +281,7 @@ health_ratio = self.health / self.max_health
         # 前フレームの位置を更新
         self.previous_position = current_pos.copy()
     
-def _apply_movement_pattern(self, all_icons):
+    def _apply_movement_pattern(self, all_icons):
         """サービスタイプ固有の動きパターンを適用"""
         if self.service_type == "API Gateway":
             self._api_gateway_behavior(all_icons)
