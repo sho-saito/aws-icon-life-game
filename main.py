@@ -17,6 +17,13 @@ from ui_panel import UIPanel
 class Game:
     """ゲームのメインクラス"""
     
+    # 相互作用に関する定数
+    VELOCITY_SLOWDOWN_FACTOR = 0.9
+    VELOCITY_INCREASE_FACTOR = 1.1
+    VELOCITY_MAX_MULTIPLIER = 2
+    HEALTH_RECOVERY_AMOUNT = 0.1
+    VELOCITY_FOLLOW_FACTOR = 0.3
+    
     def __init__(self):
         """初期化"""
         pygame.init()
@@ -102,9 +109,25 @@ class Game:
     
     def update(self):
         """ゲームの状態を更新"""
-        # アイコンの更新
+        # アイコンの更新とHealthが0になったアイコンを削除
+        dead_icons = set()
         for icon in self.all_icons:
             icon.update(self.all_icons)
+            if icon.health <= 0:
+                dead_icons.add(icon)
+        
+        # 削除対象のアイコンを処理
+        if dead_icons:
+            # 選択中のアイコンが削除される場合は選択を解除
+            if self.selected_icon in dead_icons:
+                self.selected_icon = None
+            # 直接操作中のアイコンが削除される場合は操作を解除
+            if self.direct_control_icon in dead_icons:
+                self.direct_control_icon = None
+            # アイコンをグループから効率的に削除
+            for icon in dead_icons:
+                if icon in self.all_icons:
+                    self.all_icons.remove(icon)
         
         # 進行状況の更新
         self.progress_system.check_achievements(self.all_icons)
@@ -178,50 +201,59 @@ class Game:
             icon1.rect.top = max(0, min(icon1.rect.top, SCREEN_HEIGHT - icon1.rect.height))
             icon2.rect.left = max(0, min(icon2.rect.left, GAME_AREA_WIDTH - icon2.rect.width))
             icon2.rect.top = max(0, min(icon2.rect.top, SCREEN_HEIGHT - icon2.rect.height))
+    
     def _handle_complementary_relations(self, icon1, icon2):
         """補完関係の処理"""
         # EC2とEBSの補完関係
         if (icon1.service_type == "EC2" and icon2.service_type == "EBS") or \
            (icon1.service_type == "EBS" and icon2.service_type == "EC2"):
             # 両方のアイコンの速度を少し遅くする（安定性を表現）
-            icon1.velocity = [v * 0.9 for v in icon1.velocity]
-            icon2.velocity = [v * 0.9 for v in icon2.velocity]
-            # 体力を回復
-            icon1.health = min(icon1.max_health, icon1.health + 2)
-            icon2.health = min(icon2.max_health, icon2.health + 2)
+            icon1.velocity = [v * self.VELOCITY_SLOWDOWN_FACTOR for v in icon1.velocity]
+            icon2.velocity = [v * self.VELOCITY_SLOWDOWN_FACTOR for v in icon2.velocity]
+            # 体力を少し回復（過度な回復を防ぐ）
+            icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
+            icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
             
             # EC2とEBSが近くにいる場合、EBSはEC2に追従する傾向を強める
             if icon1.service_type == "EC2" and icon2.service_type == "EBS":
                 # EC2の動きにEBSを追従させる
                 icon2.velocity = [
-                    0.7 * icon2.velocity[0] + 0.3 * icon1.velocity[0],
-                    0.7 * icon2.velocity[1] + 0.3 * icon1.velocity[1]
+                    (1 - self.VELOCITY_FOLLOW_FACTOR) * icon2.velocity[0] + self.VELOCITY_FOLLOW_FACTOR * icon1.velocity[0],
+                    (1 - self.VELOCITY_FOLLOW_FACTOR) * icon2.velocity[1] + self.VELOCITY_FOLLOW_FACTOR * icon1.velocity[1]
                 ]
             elif icon1.service_type == "EBS" and icon2.service_type == "EC2":
                 # EC2の動きにEBSを追従させる
                 icon1.velocity = [
-                    0.7 * icon1.velocity[0] + 0.3 * icon2.velocity[0],
-                    0.7 * icon1.velocity[1] + 0.3 * icon2.velocity[1]
+                    (1 - self.VELOCITY_FOLLOW_FACTOR) * icon1.velocity[0] + self.VELOCITY_FOLLOW_FACTOR * icon2.velocity[0],
+                    (1 - self.VELOCITY_FOLLOW_FACTOR) * icon1.velocity[1] + self.VELOCITY_FOLLOW_FACTOR * icon2.velocity[1]
                 ]
         
         # LambdaとDynamoDBの補完関係
         if (icon1.service_type == "Lambda" and icon2.service_type == "DynamoDB") or \
            (icon1.service_type == "DynamoDB" and icon2.service_type == "Lambda"):
             # 両方のアイコンの速度を少し速くする（効率性を表現）- 上限あり
-            icon1.velocity = [min(v * 1.1, v * 2 if v > 0 else v * -2) for v in icon1.velocity]
-            icon2.velocity = [min(v * 1.1, v * 2 if v > 0 else v * -2) for v in icon2.velocity]
-            # 体力を回復
-            icon1.health = min(icon1.max_health, icon1.health + 2)
-            icon2.health = min(icon2.max_health, icon2.health + 2)
+            icon1.velocity = [min(v * self.VELOCITY_INCREASE_FACTOR, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon1.velocity]
+            icon2.velocity = [min(v * self.VELOCITY_INCREASE_FACTOR, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon2.velocity]
+            # 体力を少し回復（過度な回復を防ぐ）
+            icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
+            icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
         
         # S3とCloudFrontの補完関係
         if (icon1.service_type == "S3" and icon2.service_type == "CloudFront") or \
            (icon1.service_type == "CloudFront" and icon2.service_type == "S3"):
-            # CloudFrontの速度を速くする（配信の高速化を表現）- 上限あり
+            # 速度を少し速くする（効率性を表現）- 上限あり
+            icon1.velocity = [min(v * self.VELOCITY_INCREASE_FACTOR, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon1.velocity]
+            icon2.velocity = [min(v * self.VELOCITY_INCREASE_FACTOR, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon2.velocity]
+            # 体力を少し回復（過度な回復を防ぐ）
+            icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
+            icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
+            
+            # CloudFrontの場合は追加で速度を上げる（配信の高速化を表現）
+            cloudfront_boost_factor = 1.2
             if icon1.service_type == "CloudFront":
-                icon1.velocity = [min(v * 1.2, v * 2 if v > 0 else v * -2) for v in icon1.velocity]
-            else:
-                icon2.velocity = [min(v * 1.2, v * 2 if v > 0 else v * -2) for v in icon2.velocity]
+                icon1.velocity = [min(v * cloudfront_boost_factor, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon1.velocity]
+            elif icon2.service_type == "CloudFront":
+                icon2.velocity = [min(v * cloudfront_boost_factor, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon2.velocity]
     
     def render(self):
         """描画処理"""
