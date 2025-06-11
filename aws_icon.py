@@ -21,6 +21,13 @@ class AWSIcon(pygame.sprite.Sprite):
     YELLOW_HEALTH_MIN_FORCE = 0.3  # 最小の力
     YELLOW_HEALTH_MAX_FORCE = 0.8  # 最大の力
     
+    # 体力に関する定数
+    SURVIVAL_COST = 0.01  # 全アイコン共通の生存コスト
+    YELLOW_HEALTH_LOWER_THRESHOLD = 0.3  # 黄色体力の下限
+    YELLOW_HEALTH_UPPER_THRESHOLD = 0.6  # 黄色体力の上限
+    DEPENDENCY_HEALTH_DECREASE = 0.05  # 依存関係不満足時の体力減少
+    DEPENDENCY_HEALTH_RECOVERY = 0.05  # 依存関係満足時の体力回復
+    
     def __init__(self, service_type, position, velocity=None):
         super().__init__()
         self.service_type = service_type
@@ -225,20 +232,20 @@ class AWSIcon(pygame.sprite.Sprite):
             # 依存関係が満たされていない場合、体力を減少
             if not self.dependency_satisfied:
                 if self.service_type in ["EC2", "RDS", "API Gateway", "CloudFront", "DynamoDB"]:
-                    self.health = max(0, self.health - 0.05)  # 依存関係不満足時の減少を緩和
+                    self.health = max(0, self.health - self.DEPENDENCY_HEALTH_DECREASE)
             elif self.health < self.max_health:
-                self.health = min(self.max_health, self.health + 0.05)
+                self.health = min(self.max_health, self.health + self.DEPENDENCY_HEALTH_RECOVERY)
         
         # 相互作用タイマーの更新
         if self.interaction_timer > 0:
             self.interaction_timer -= 1
         
         # 全アイコン共通の微細なHealth減少（生存コスト）
-        self.health = max(0, self.health - 0.01)
+        self.health = max(0, self.health - self.SURVIVAL_COST)
         
         # Healthが黄色の域（30-60%）の場合、ランダムな動きを加えて停滞を防ぐ
         health_ratio = self.health / self.max_health
-        if 0.3 < health_ratio <= 0.6:
+        if self.YELLOW_HEALTH_LOWER_THRESHOLD < health_ratio <= self.YELLOW_HEALTH_UPPER_THRESHOLD:
             # 低確率でランダムな力を加える
             if random.random() < self.YELLOW_HEALTH_RANDOM_MOVE_PROBABILITY:
                 angle = random.uniform(0, 2 * math.pi)
@@ -297,20 +304,60 @@ class AWSIcon(pygame.sprite.Sprite):
             self._vpc_behavior(all_icons)
 
     def _ec2_behavior(self, all_icons):
-        # EC2の動作をここに実装
-        pass
+        """EC2の動作を実装"""
+        # EC2は基本的にランダムな動きをする
+        if random.random() < 0.1:  # 10%の確率で方向転換
+            angle = random.uniform(0, 2 * math.pi)
+            force = random.uniform(0.2, 0.5)
+            self.velocity[0] += math.cos(angle) * force
+            self.velocity[1] += math.sin(angle) * force
 
     def _s3_behavior(self):
-        # S3の動作をここに実装
-        pass
+        """S3の動作を実装"""
+        # S3は比較的安定した動きをする
+        # 速度を徐々に減衰させる（安定性を表現）
+        self.velocity[0] *= 0.98
+        self.velocity[1] *= 0.98
 
     def _ebs_behavior(self, all_icons):
-        # EBSの動作をここに実装
-        pass
+        """EBSの動作を実装"""
+        # EBSは近くのEC2に引き寄せられる傾向がある
+        if all_icons:
+            ec2_icons = [icon for icon in all_icons if icon.service_type == "EC2"]
+            if ec2_icons:
+                # 最も近いEC2を見つける
+                closest_ec2 = min(ec2_icons, key=lambda ec2: 
+                    math.sqrt((self.rect.centerx - ec2.rect.centerx)**2 + 
+                             (self.rect.centery - ec2.rect.centery)**2))
+                
+                # EC2に向かう力を加える
+                if self._is_near(closest_ec2, 200):
+                    dx = closest_ec2.rect.centerx - self.rect.centerx
+                    dy = closest_ec2.rect.centery - self.rect.centery
+                    distance = math.sqrt(dx**2 + dy**2)
+                    if distance > 0:
+                        force = 0.1
+                        self.velocity[0] += (dx / distance) * force
+                        self.velocity[1] += (dy / distance) * force
 
     def _vpc_behavior(self, all_icons):
-        # VPCの動作をここに実装
-        pass
+        """VPCの動作を実装"""
+        # VPCは比較的ゆっくりと動き、他のサービスを包含する傾向がある
+        # 速度を制限する
+        max_speed = 1.0
+        speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+        if speed > max_speed:
+            self.velocity[0] = (self.velocity[0] / speed) * max_speed
+            self.velocity[1] = (self.velocity[1] / speed) * max_speed
+        
+        # 時々方向を微調整
+        if random.random() < 0.05:  # 5%の確率
+            angle = random.uniform(-0.2, 0.2)  # 小さな角度変更
+            cos_a, sin_a = math.cos(angle), math.sin(angle)
+            new_vx = self.velocity[0] * cos_a - self.velocity[1] * sin_a
+            new_vy = self.velocity[0] * sin_a + self.velocity[1] * cos_a
+            self.velocity[0] = new_vx
+            self.velocity[1] = new_vy
 
     def _is_near(self, other_icon, distance_threshold):
         """他のアイコンが近くにいるかを判定"""
