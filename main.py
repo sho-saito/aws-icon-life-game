@@ -107,16 +107,10 @@ class Game:
             icon.update(self.all_icons)
         
         # Healthが0になったアイコンを削除
-        # Healthが0になったアイコンを削除
+        # アイコンの更新とHealthが0になったアイコンを削除
         dead_icons = set()
         for icon in self.all_icons:
-icon.update(self.all_icons)
-        
-        # Healthが0になったアイコンを削除
-        dead_icons = set()
-        for icon in self.all_icons:
-            if icon.health <= 0:
-                dead_icons.add(icon)
+            icon.update(self.all_icons)
             if icon.health <= 0:
                 dead_icons.add(icon)
         
@@ -204,23 +198,17 @@ icon.update(self.all_icons)
             icon1.rect.top = max(0, min(icon1.rect.top, SCREEN_HEIGHT - icon1.rect.height))
             icon2.rect.left = max(0, min(icon2.rect.left, GAME_AREA_WIDTH - icon2.rect.width))
             icon2.rect.top = max(0, min(icon2.rect.top, SCREEN_HEIGHT - icon2.rect.height))
+    
     def _handle_complementary_relations(self, icon1, icon2):
         """補完関係の処理"""
         # EC2とEBSの補完関係
         if (icon1.service_type == "EC2" and icon2.service_type == "EBS") or \
            (icon1.service_type == "EBS" and icon2.service_type == "EC2"):
             # 両方のアイコンの速度を少し遅くする（安定性を表現）
-icon2.rect.top = max(0, min(icon2.rect.top, SCREEN_HEIGHT - icon2.rect.height))
-    def _handle_complementary_relations(self, icon1, icon2):
-        """補完関係の処理"""
-        # Constants for velocity and health adjustments
-        VELOCITY_SLOWDOWN_FACTOR = 0.9
-        HEALTH_RECOVERY_AMOUNT = 0.1
-        VELOCITY_FOLLOW_FACTOR = 0.3
-
-        # EC2とEBSの補完関係
-        if (icon1.service_type == "EC2" and icon2.service_type == "EBS") or \
-           (icon1.service_type == "EBS" and icon2.service_type == "EC2"):
+            # Constants for velocity and health adjustments
+            VELOCITY_SLOWDOWN_FACTOR = 0.9
+            HEALTH_RECOVERY_AMOUNT = 0.1
+            VELOCITY_FOLLOW_FACTOR = 0.3
             # 両方のアイコンの速度を少し遅くする（安定性を表現）
             icon1.velocity = [v * VELOCITY_SLOWDOWN_FACTOR for v in icon1.velocity]
             icon2.velocity = [v * VELOCITY_SLOWDOWN_FACTOR for v in icon2.velocity]
