@@ -113,7 +113,27 @@ class Game:
                 dead_icons.append(icon)
         
         # 削除対象のアイコンを処理
-        for icon in dead_icons:
+icon.update(self.all_icons)
+        
+        # Healthが0になったアイコンを削除
+        dead_icons = set()
+        for icon in self.all_icons:
+            if icon.health <= 0:
+                dead_icons.add(icon)
+        
+        # 削除対象のアイコンを処理
+        if dead_icons:
+            # 選択中のアイコンが削除される場合は選択を解除
+            if self.selected_icon in dead_icons:
+                self.selected_icon = None
+            # 直接操作中のアイコンが削除される場合は操作を解除
+            if self.direct_control_icon in dead_icons:
+                self.direct_control_icon = None
+            # アイコンをグループから削除
+            self.all_icons.difference_update(dead_icons)
+        
+        # 進行状況の更新
+        self.progress_system.check_achievements(self.all_icons)
             # 選択中のアイコンが削除される場合は選択を解除
             if self.selected_icon == icon:
                 self.selected_icon = None
@@ -225,7 +245,20 @@ class Game:
         if (icon1.service_type == "Lambda" and icon2.service_type == "DynamoDB") or \
            (icon1.service_type == "DynamoDB" and icon2.service_type == "Lambda"):
             # 両方のアイコンの速度を少し速くする（効率性を表現）- 上限あり
-            icon1.velocity = [min(v * 1.1, v * 2 if v > 0 else v * -2) for v in icon1.velocity]
+if (icon1.service_type == "Lambda" and icon2.service_type == "DynamoDB") or \
+           (icon1.service_type == "DynamoDB" and icon2.service_type == "Lambda"):
+            # 両方のアイコンの速度を少し速くする（効率性を表現）- 上限あり
+            VELOCITY_INCREASE_FACTOR = 1.1
+            VELOCITY_MAX_MULTIPLIER = 2
+            icon1.velocity = [min(v * VELOCITY_INCREASE_FACTOR, v * VELOCITY_MAX_MULTIPLIER if v > 0 else v * -VELOCITY_MAX_MULTIPLIER) for v in icon1.velocity]
+            icon2.velocity = [min(v * VELOCITY_INCREASE_FACTOR, v * VELOCITY_MAX_MULTIPLIER if v > 0 else v * -VELOCITY_MAX_MULTIPLIER) for v in icon2.velocity]
+            # 体力を少し回復（過度な回復を防ぐ）
+            HEALTH_RECOVERY_AMOUNT = 0.1
+            icon1.health = min(icon1.max_health, icon1.health + HEALTH_RECOVERY_AMOUNT)
+            icon2.health = min(icon2.max_health, icon2.health + HEALTH_RECOVERY_AMOUNT)
+        
+        # S3とCloudFrontの補完関係
+        if (icon1.service_type == "S3" and icon2.service_type == "CloudFront") or \
             icon2.velocity = [min(v * 1.1, v * 2 if v > 0 else v * -2) for v in icon2.velocity]
             # 体力を少し回復（過度な回復を防ぐ）
             icon1.health = min(icon1.max_health, icon1.health + 0.1)

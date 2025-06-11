@@ -235,7 +235,14 @@ class AWSIcon(pygame.sprite.Sprite):
         health_ratio = self.health / self.max_health
         if 0.3 < health_ratio <= 0.6:
             # 低確率でランダムな力を加える
-            if random.random() < 0.05:  # 5%の確率
+health_ratio = self.health / self.max_health
+        if 0.3 < health_ratio <= 0.6:
+            # 低確率でランダムな力を加える
+            if random.random() < self.YELLOW_HEALTH_RANDOM_MOVE_PROBABILITY:
+                angle = random.uniform(0, 2 * math.pi)
+                force = random.uniform(self.YELLOW_HEALTH_MIN_FORCE, self.YELLOW_HEALTH_MAX_FORCE)
+                self.velocity[0] += math.cos(angle) * force
+                self.velocity[1] += math.sin(angle) * force
                 angle = random.uniform(0, 2 * math.pi)
                 force = random.uniform(0.3, 0.8)  # 適度な力
                 self.velocity[0] += math.cos(angle) * force
@@ -248,7 +255,15 @@ class AWSIcon(pygame.sprite.Sprite):
         """動きを追跡し、停滞時にHealthを減少させる"""
         # 現在の位置と前フレームの位置の距離を計算
         current_pos = [self.rect.centerx, self.rect.centery]
-        distance_moved = math.sqrt(
+"""動きを追跡し、停滞時にHealthを減少させる"""
+        # 現在の位置と前フレームの位置の距離を計算
+        current_pos = [self.rect.centerx, self.rect.centery]
+        distance_moved = math.hypot(
+            current_pos[0] - self.previous_position[0],
+            current_pos[1] - self.previous_position[1]
+        )
+        
+        # 動きが閾値以下の場合は停滞とみなす
             (current_pos[0] - self.previous_position[0])**2 + 
             (current_pos[1] - self.previous_position[1])**2
         )
@@ -272,7 +287,40 @@ class AWSIcon(pygame.sprite.Sprite):
         # 前フレームの位置を更新
         self.previous_position = current_pos.copy()
     
-    def _apply_movement_pattern(self, all_icons):
+def _apply_movement_pattern(self, all_icons):
+        """サービスタイプ固有の動きパターンを適用"""
+        if self.service_type == "API Gateway":
+            self._api_gateway_behavior(all_icons)
+        elif self.service_type == "Lambda":
+            self._lambda_behavior(all_icons)
+        elif self.service_type == "EC2":
+            self._ec2_behavior(all_icons)
+        elif self.service_type == "S3":
+            self._s3_behavior()
+        elif self.service_type == "EBS":
+            self._ebs_behavior(all_icons)
+        elif self.service_type == "VPC":
+            self._vpc_behavior(all_icons)
+
+    def _ec2_behavior(self, all_icons):
+        # EC2の動作をここに実装
+        pass
+
+    def _s3_behavior(self):
+        # S3の動作をここに実装
+        pass
+
+    def _ebs_behavior(self, all_icons):
+        # EBSの動作をここに実装
+        pass
+
+    def _vpc_behavior(self, all_icons):
+        # VPCの動作をここに実装
+        pass
+
+    def _is_near(self, other_icon, distance_threshold):
+        """他のアイコンが近くにいるかを判定"""
+        dx = self.rect.centerx - other_icon.rect.centerx
         """サービスタイプ固有の動きパターンを適用"""
         if self.service_type == "API Gateway":
             # API Gatewayの振る舞いを管理
