@@ -27,7 +27,23 @@ class AWSIcon(pygame.sprite.Sprite):
     YELLOW_HEALTH_UPPER_THRESHOLD = 0.6  # 黄色体力の上限
     DEPENDENCY_HEALTH_DECREASE = 0.05  # 依存関係不満足時の体力減少
     DEPENDENCY_HEALTH_RECOVERY = 0.05  # 依存関係満足時の体力回復
-    
+
+    # AutoScalingに関する定数
+    # Auto Scalingは水平スケーリング（スケールアウト＝EC2追加、スケールイン＝EC2削減）を表現する
+    AUTOSCALING_MONITORING_RADIUS = 150  # モニタリング範囲の半径（ピクセル）
+    AUTOSCALING_MIN_COOLDOWN_FRAMES = 180  # スケーリング後の最小クールダウン（3秒）
+    AUTOSCALING_MAX_COOLDOWN_FRAMES = 300  # スケーリング後の最大クールダウン（5秒）
+    AUTOSCALING_MIN_SCALE_DURATION = 90   # スケーリングの最小継続フレーム数（1.5秒）
+    AUTOSCALING_MAX_SCALE_DURATION = 150  # スケーリングの最大継続フレーム数（2.5秒）
+    AUTOSCALING_MIN_DESIRED_COUNT = 1   # DesiredCountの最小値
+    AUTOSCALING_MAX_DESIRED_COUNT = 3   # DesiredCountの最大値
+    AUTOSCALING_SCALE_OUT_PROBABILITY = 0.03  # 近傍EC2がDesired未満のときスケールアウトする確率（1フレームあたり）
+    AUTOSCALING_EXCESS_DRAIN = 0.5      # 近傍EC2がDesired超過のとき、超過分のEC2から急激に減らす体力（1フレームあたり）
+    AUTOSCALING_SCALE_OUT_SPEED = 3.0   # スケールアウト時の移動速度（即応性を表現）
+    AUTOSCALING_SPAWN_OFFSET = 60       # スケールアウトで起動するEC2の配置距離（ピクセル）
+    AUTOSCALING_SEPARATION_RADIUS = 220  # AutoScaling同士が反発し始める距離（ピクセル）
+    AUTOSCALING_SEPARATION_FORCE = 0.3   # AutoScaling同士の反発力の最大値（近いほど強い）
+
     def __init__(self, service_type, position, velocity=None):
         super().__init__()
         self.service_type = service_type
@@ -44,8 +60,14 @@ class AWSIcon(pygame.sprite.Sprite):
             # 画像が見つからない場合は代替の四角形を使用
             self.image = pygame.Surface((50, 50))
             self.image.fill(ICON_COLORS.get(service_type, (200, 200, 200)))
-            font = pygame.font.SysFont(None, 20)
-            text = font.render(service_type, True, (0, 0, 0))
+            # サービス名がアイコンの幅に収まるようフォントサイズを調整する
+            font_size = 20
+            while True:
+                font = pygame.font.SysFont(None, font_size)
+                text = font.render(service_type, True, (0, 0, 0))
+                if text.get_width() <= 46 or font_size <= 10:
+                    break
+                font_size -= 1
             text_rect = text.get_rect(center=(25, 25))
             self.image.blit(text, text_rect)
         
@@ -97,6 +119,22 @@ class AWSIcon(pygame.sprite.Sprite):
         self.stationary_frames = 0  # 停滞しているフレーム数
         self.movement_threshold = 3.0  # 動きと判断する最小距離（ピクセル）
         self.max_stationary_frames = 300  # 停滞許容フレーム数（約5秒）
+
+        # AutoScalingの状態管理
+        if self.service_type == "AutoScaling":
+            self.autoscaling_state = 'monitoring'  # 'monitoring', 'scaling_out'
+            self.state_timer = 0
+            self.scale_duration = 0
+            self.scale_cooldown = 0
+            self.target_ec2s = []
+            self.spawn_requests = []  # スケールアウトで起動するアイコンの (service_type, position) リスト
+            # 維持したいEC2の台数（生成時にランダムに決まる）
+            self.desired_count = random.randint(
+                self.AUTOSCALING_MIN_DESIRED_COUNT, self.AUTOSCALING_MAX_DESIRED_COUNT)
+            # DesiredCountの常時表示用ラベル
+            label_font = pygame.font.SysFont(None, 18)
+            self.desired_label = label_font.render(
+                f"Desired = {self.desired_count}", True, (50, 50, 50))
     
     def _set_dependencies(self):
         """サービスの依存関係を設定"""
@@ -114,6 +152,8 @@ class AWSIcon(pygame.sprite.Sprite):
             return ["EC2"]  # EBSはEC2に依存（EC2にアタッチされる）
         elif self.service_type == "DynamoDB":
             return ["Lambda"]  # DynamoDBはLambdaに依存
+        elif self.service_type == "AutoScaling":
+            return ["EC2"]  # AutoScalingはEC2に依存
         return []
         
     def _handle_overlap(self, other_icon):
@@ -125,12 +165,14 @@ class AWSIcon(pygame.sprite.Sprite):
         
         # アイコンの半径（簡易的に幅の半分を使用）
         radius = self.rect.width / 2
-        
-        # 重なりの度合いを計算（0なら完全に重なっている、radius*2なら接している）
-        overlap = max(0, radius * 2 - distance)
-        
+        combined_radius = radius + other_icon.rect.width / 2
+
+        # 重なりの度合いを計算（0なら完全に重なっている、combined_radiusなら接している）
+        overlap = max(0, combined_radius - distance)
+
         # 重なりが閾値を超えている場合、分離力を適用
-        if overlap > self.OVERLAP_THRESHOLD:
+        # （閾値は50pxアイコン同士＝combined_radius 50を基準にサイズへ比例させる）
+        if overlap > self.OVERLAP_THRESHOLD * combined_radius / 50:
             # 他のアイコンのIDを取得（Pythonのオブジェクトのidを使用）
             other_id = id(other_icon)
             
@@ -298,6 +340,8 @@ class AWSIcon(pygame.sprite.Sprite):
             self._ebs_behavior(all_icons)
         elif self.service_type == "VPC":
             self._vpc_behavior(all_icons)
+        elif self.service_type == "AutoScaling":
+            self._autoscaling_behavior(all_icons)
 
     def _ec2_behavior(self, all_icons):
         """EC2の動作を実装"""
@@ -307,6 +351,25 @@ class AWSIcon(pygame.sprite.Sprite):
             force = random.uniform(0.2, 0.5)
             self.velocity[0] += math.cos(angle) * force
             self.velocity[1] += math.sin(angle) * force
+
+        # 近くのAutoScalingに引き寄せられる（管理下のフリートとしてまとまる傾向）
+        if all_icons:
+            autoscaling_icons = [icon for icon in all_icons if icon.service_type == "AutoScaling"]
+            if autoscaling_icons:
+                # 最も近いAutoScalingを見つける
+                closest_autoscaling = min(autoscaling_icons, key=lambda a:
+                    math.sqrt((self.rect.centerx - a.rect.centerx)**2 +
+                             (self.rect.centery - a.rect.centery)**2))
+
+                # AutoScalingに向かう力を加える
+                if self._is_near(closest_autoscaling, 250):
+                    dx = closest_autoscaling.rect.centerx - self.rect.centerx
+                    dy = closest_autoscaling.rect.centery - self.rect.centery
+                    distance = math.sqrt(dx**2 + dy**2)
+                    if distance > 60:  # 近すぎる場合は引力を働かせない（重なり防止）
+                        force = 0.12
+                        self.velocity[0] += (dx / distance) * force
+                        self.velocity[1] += (dy / distance) * force
 
     def _s3_behavior(self):
         """S3の動作を実装"""
@@ -362,6 +425,136 @@ class AWSIcon(pygame.sprite.Sprite):
                 recovery_rate = 0.2  # 通常の回復速度より高い
                 self.health = min(self.max_health, self.health + recovery_rate)
 
+    def _autoscaling_behavior(self, all_icons):
+        """AutoScalingの動作を実装"""
+        if self.autoscaling_state == 'monitoring':
+            # モニタリング状態: EC2の集団を監視するような動き
+
+            # 方向転換の確率を中程度に設定（監視パターンを表現）
+            if random.random() < 0.03:  # 3%の確率で方向転換
+                angle = random.uniform(0, 2 * math.pi)
+                speed = random.uniform(1.5, 2.2)
+                self.velocity = [
+                    math.cos(angle) * speed,
+                    math.sin(angle) * speed
+                ]
+
+            if all_icons:
+                ec2_icons = [icon for icon in all_icons if icon.service_type == "EC2"]
+
+                if ec2_icons:
+                    # EC2の集中している場所（中心点）を計算
+                    center_x = sum(icon.rect.centerx for icon in ec2_icons) / len(ec2_icons)
+                    center_y = sum(icon.rect.centery for icon in ec2_icons) / len(ec2_icons)
+
+                    dx = center_x - self.rect.centerx
+                    dy = center_y - self.rect.centery
+                    distance = math.sqrt(dx*dx + dy*dy)
+
+                    # EC2の集団に向かう
+                    if distance > 0:
+                        attraction = min(0.1, 30 / distance)
+                        self.velocity[0] += (dx / distance) * attraction
+                        self.velocity[1] += (dy / distance) * attraction
+
+                else:
+                    # EC2がない場合、ランダムに動き回る
+                    if random.random() < 0.05:  # 5%の確率で方向転換
+                        angle = random.uniform(0, 2 * math.pi)
+                        speed = random.uniform(1.0, 2.0)
+                        self.velocity = [
+                            math.cos(angle) * speed,
+                            math.sin(angle) * speed
+                        ]
+
+                # 監視範囲内のEC2数をDesiredCountと比較してスケーリング判断
+                nearby_ec2s = [ec2 for ec2 in ec2_icons
+                               if self._is_near(ec2, self.AUTOSCALING_MONITORING_RADIUS)]
+                if len(nearby_ec2s) < self.desired_count:
+                    # 不足: 近くでEC2の発生率を上げる（クールダウン明けにスケールアウト）
+                    if (self.scale_cooldown <= 0
+                            and random.random() < self.AUTOSCALING_SCALE_OUT_PROBABILITY):
+                        self._start_scaling('scaling_out', nearby_ec2s[:2])
+                elif len(nearby_ec2s) > self.desired_count:
+                    # 超過: 超過分のEC2（体力が低い順）のライフを急激に減らす
+                    excess = len(nearby_ec2s) - self.desired_count
+                    for ec2 in sorted(nearby_ec2s, key=lambda e: e.health)[:excess]:
+                        ec2.health = max(0, ec2.health - self.AUTOSCALING_EXCESS_DRAIN)
+
+            # クールダウンの更新
+            if self.scale_cooldown > 0:
+                self.scale_cooldown -= 1
+
+        elif self.autoscaling_state == 'scaling_out':
+            # スケールアウト状態: フリートに向かい、完了時に新しいEC2を起動する
+            # 既存のEC2フリートに高速で接近（スケールアウトの即応性を表現）
+            targets = [ec2 for ec2 in self.target_ec2s if ec2.health > 0]
+            if targets:
+                target = targets[0]  # 生存している先頭のターゲットを追い続ける（毎フレームの再抽選によるぶれを防ぐ）
+                dx = target.rect.centerx - self.rect.centerx
+                dy = target.rect.centery - self.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                if distance > 0:
+                    speed = self.AUTOSCALING_SCALE_OUT_SPEED
+                    self.velocity = [(dx / distance) * speed, (dy / distance) * speed]
+
+            self._advance_scaling_timer()
+
+        # AutoScaling同士の反発（状態にかかわらず適用し、密集・だんご化を防ぐ）
+        # スケールアウト状態のvelocity上書き後に加算するため、状態処理の最後に行う
+        if all_icons:
+            for other in all_icons:
+                if other is self or other.service_type != "AutoScaling":
+                    continue
+                dx = self.rect.centerx - other.rect.centerx
+                dy = self.rect.centery - other.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                if distance >= self.AUTOSCALING_SEPARATION_RADIUS:
+                    continue
+                if distance > 0:
+                    direction_x = dx / distance
+                    direction_y = dy / distance
+                else:
+                    # 完全に重なっている場合はランダムな方向へ
+                    angle = random.uniform(0, 2 * math.pi)
+                    direction_x = math.cos(angle)
+                    direction_y = math.sin(angle)
+                # 近いほど強い反発力（境界でゼロ、密着で最大）
+                strength = self.AUTOSCALING_SEPARATION_FORCE * (
+                    1 - distance / self.AUTOSCALING_SEPARATION_RADIUS)
+                self.velocity[0] += direction_x * strength
+                self.velocity[1] += direction_y * strength
+
+    def _start_scaling(self, state, targets):
+        """スケーリング状態を開始する"""
+        self.autoscaling_state = state
+        self.state_timer = 0
+        self.scale_duration = random.randint(
+            self.AUTOSCALING_MIN_SCALE_DURATION, self.AUTOSCALING_MAX_SCALE_DURATION)
+        self.target_ec2s = targets
+
+    def _complete_scaling(self):
+        """スケーリング動作の完了時に実際のスケールアウトを実行する"""
+        if self.autoscaling_state == 'scaling_out':
+            # 新しいEC2を自分の近くに起動する（ゲームエリア内に収める）
+            angle = random.uniform(0, 2 * math.pi)
+            spawn_x = self.rect.centerx + math.cos(angle) * self.AUTOSCALING_SPAWN_OFFSET
+            spawn_y = self.rect.centery + math.sin(angle) * self.AUTOSCALING_SPAWN_OFFSET
+            spawn_x = max(50, min(GAME_AREA_WIDTH - 50, spawn_x))
+            spawn_y = max(50, min(SCREEN_HEIGHT - 50, spawn_y))
+            self.spawn_requests.append(("EC2", (int(spawn_x), int(spawn_y))))
+
+    def _advance_scaling_timer(self):
+        """スケーリング状態のタイマーを進め、終了時にスケールアウト/インを実行してモニタリング状態に戻す"""
+        self.state_timer += 1
+        if self.state_timer >= self.scale_duration:
+            self._complete_scaling()
+            self.autoscaling_state = 'monitoring'
+            self.state_timer = 0
+            self.target_ec2s = []
+            self.scale_cooldown = random.randint(
+                self.AUTOSCALING_MIN_COOLDOWN_FRAMES, self.AUTOSCALING_MAX_COOLDOWN_FRAMES)  # クールダウン開始
+
     def _is_near(self, other_icon, distance_threshold):
         """他のアイコンが近くにいるかを判定"""
         dx = self.rect.centerx - other_icon.rect.centerx
@@ -374,6 +567,12 @@ class AWSIcon(pygame.sprite.Sprite):
         # 通常の描画
         surface.blit(self.image, self.rect)
         
+        # AutoScalingのDesiredCountを常時表示
+        if self.service_type == "AutoScaling":
+            label_rect = self.desired_label.get_rect(
+                midbottom=(self.rect.centerx, self.rect.top - 2))
+            surface.blit(self.desired_label, label_rect)
+
         # 選択状態の表示
         if self.selected:
             pygame.draw.rect(surface, (255, 255, 0), self.rect, 2)

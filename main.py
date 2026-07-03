@@ -128,7 +128,15 @@ class Game:
             for icon in dead_icons:
                 if icon in self.all_icons:
                     self.all_icons.remove(icon)
-        
+
+        # AutoScalingのスケールアウトによるアイコン起動リクエストを処理
+        for icon in list(self.all_icons):
+            requests = getattr(icon, 'spawn_requests', None)
+            if requests:
+                for service_type, position in requests:
+                    self.all_icons.add(AWSIcon(service_type, position))
+                icon.spawn_requests = []
+
         # 進行状況の更新
         self.progress_system.check_achievements(self.all_icons)
         self.progress_system.update_notifications()
@@ -172,9 +180,8 @@ class Game:
         # ベクトルの長さ（距離）を計算
         distance = math.sqrt(dx*dx + dy*dy)
         
-        # アイコンの半径（サイズの半分）
-        icon_radius = icon1.rect.width / 2
-        min_distance = icon_radius * 2  # 最小距離は両方のアイコンの半径の合計
+        # 最小距離は両方のアイコンの半径の合計（サイズが異なるアイコンにも対応）
+        min_distance = icon1.rect.width / 2 + icon2.rect.width / 2
         
         # 重なっている場合のみ調整
         if distance < min_distance and distance > 0:  # 0除算を防ぐ

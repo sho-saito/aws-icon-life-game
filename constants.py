@@ -14,7 +14,7 @@ UI_TEXT_COLOR = (50, 50, 50)
 UI_BORDER_COLOR = (200, 200, 200)
 
 # AWSアイコンの種類
-AWS_ICONS = ["EC2", "S3", "VPC", "Lambda", "EBS", "RDS", "IAM", "DynamoDB", "API Gateway", "CloudFront"]
+AWS_ICONS = ["EC2", "S3", "VPC", "Lambda", "EBS", "RDS", "IAM", "DynamoDB", "API Gateway", "CloudFront", "AutoScaling"]
 
 # アイコンの色マッピング
 ICON_COLORS = {
@@ -27,5 +27,6 @@ ICON_COLORS = {
     "IAM": (255, 215, 0),      # 金色
     "DynamoDB": (54, 150, 215),# 青
     "API Gateway": (150, 0, 150), # 紫
-    "CloudFront": (255, 99, 71)  # トマト色
+    "CloudFront": (255, 99, 71),  # トマト色
+    "AutoScaling": (76, 175, 80)  # 緑（成長・スケーリングを表現）
 }
