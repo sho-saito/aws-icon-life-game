@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          today=$(date +%Y-%m-%d)
+          today=$(TZ=Asia/Tokyo date +%Y-%m-%d)
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
