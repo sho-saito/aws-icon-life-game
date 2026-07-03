@@ -202,6 +202,20 @@ class Game:
             icon2.rect.left = max(0, min(icon2.rect.left, GAME_AREA_WIDTH - icon2.rect.width))
             icon2.rect.top = max(0, min(icon2.rect.top, SCREEN_HEIGHT - icon2.rect.height))
     
+    def _cap_velocity(self, velocity, increase_factor, max_multiplier):
+        """速度成分を増加させつつ、元の速度の max_multiplier 倍を超えないようキャップする"""
+        capped = []
+        for v in velocity:
+            candidate = v * increase_factor
+            limit = v * max_multiplier
+            if v > 0:
+                capped.append(min(candidate, limit))
+            elif v < 0:
+                capped.append(max(candidate, limit))
+            else:
+                capped.append(candidate)
+        return capped
+
     def _handle_complementary_relations(self, icon1, icon2):
         """補完関係の処理"""
         # EC2とEBSの補完関係
@@ -232,28 +246,28 @@ class Game:
         if (icon1.service_type == "Lambda" and icon2.service_type == "DynamoDB") or \
            (icon1.service_type == "DynamoDB" and icon2.service_type == "Lambda"):
             # 両方のアイコンの速度を少し速くする（効率性を表現）- 上限あり
-            icon1.velocity = [min(v * self.VELOCITY_INCREASE_FACTOR, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon1.velocity]
-            icon2.velocity = [min(v * self.VELOCITY_INCREASE_FACTOR, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon2.velocity]
+            icon1.velocity = self._cap_velocity(icon1.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
+            icon2.velocity = self._cap_velocity(icon2.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
             # 体力を少し回復（過度な回復を防ぐ）
             icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
             icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
-        
+
         # S3とCloudFrontの補完関係
         if (icon1.service_type == "S3" and icon2.service_type == "CloudFront") or \
            (icon1.service_type == "CloudFront" and icon2.service_type == "S3"):
             # 速度を少し速くする（効率性を表現）- 上限あり
-            icon1.velocity = [min(v * self.VELOCITY_INCREASE_FACTOR, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon1.velocity]
-            icon2.velocity = [min(v * self.VELOCITY_INCREASE_FACTOR, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon2.velocity]
+            icon1.velocity = self._cap_velocity(icon1.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
+            icon2.velocity = self._cap_velocity(icon2.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
             # 体力を少し回復（過度な回復を防ぐ）
             icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
             icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
-            
+
             # CloudFrontの場合は追加で速度を上げる（配信の高速化を表現）
             cloudfront_boost_factor = 1.2
             if icon1.service_type == "CloudFront":
-                icon1.velocity = [min(v * cloudfront_boost_factor, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon1.velocity]
+                icon1.velocity = self._cap_velocity(icon1.velocity, cloudfront_boost_factor, self.VELOCITY_MAX_MULTIPLIER)
             elif icon2.service_type == "CloudFront":
-                icon2.velocity = [min(v * cloudfront_boost_factor, v * self.VELOCITY_MAX_MULTIPLIER if v > 0 else v * -self.VELOCITY_MAX_MULTIPLIER) for v in icon2.velocity]
+                icon2.velocity = self._cap_velocity(icon2.velocity, cloudfront_boost_factor, self.VELOCITY_MAX_MULTIPLIER)
     
     def render(self):
         """描画処理"""
@@ -298,4 +312,3 @@ if __name__ == "__main__":
     
     game = Game()
     game.run()
-import math
