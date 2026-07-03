@@ -41,6 +41,8 @@ class AWSIcon(pygame.sprite.Sprite):
     AUTOSCALING_EXCESS_DRAIN = 0.5      # 近傍EC2がDesired超過のとき、超過分のEC2から急激に減らす体力（1フレームあたり）
     AUTOSCALING_SCALE_OUT_SPEED = 3.0   # スケールアウト時の移動速度（即応性を表現）
     AUTOSCALING_SPAWN_OFFSET = 60       # スケールアウトで起動するEC2の配置距離（ピクセル）
+    AUTOSCALING_SEPARATION_RADIUS = 220  # AutoScaling同士が反発し始める距離（ピクセル）
+    AUTOSCALING_SEPARATION_FORCE = 0.3   # AutoScaling同士の反発力の最大値（近いほど強い）
 
     def __init__(self, service_type, position, velocity=None):
         super().__init__()
@@ -497,6 +499,31 @@ class AWSIcon(pygame.sprite.Sprite):
                     self.velocity = [(dx / distance) * speed, (dy / distance) * speed]
 
             self._advance_scaling_timer()
+
+        # AutoScaling同士の反発（状態にかかわらず適用し、密集・だんご化を防ぐ）
+        # スケールアウト状態のvelocity上書き後に加算するため、状態処理の最後に行う
+        if all_icons:
+            for other in all_icons:
+                if other is self or other.service_type != "AutoScaling":
+                    continue
+                dx = self.rect.centerx - other.rect.centerx
+                dy = self.rect.centery - other.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                if distance >= self.AUTOSCALING_SEPARATION_RADIUS:
+                    continue
+                if distance > 0:
+                    direction_x = dx / distance
+                    direction_y = dy / distance
+                else:
+                    # 完全に重なっている場合はランダムな方向へ
+                    angle = random.uniform(0, 2 * math.pi)
+                    direction_x = math.cos(angle)
+                    direction_y = math.sin(angle)
+                # 近いほど強い反発力（境界でゼロ、密着で最大）
+                strength = self.AUTOSCALING_SEPARATION_FORCE * (
+                    1 - distance / self.AUTOSCALING_SEPARATION_RADIUS)
+                self.velocity[0] += direction_x * strength
+                self.velocity[1] += direction_y * strength
 
     def _start_scaling(self, state, targets):
         """スケーリング状態を開始する"""
