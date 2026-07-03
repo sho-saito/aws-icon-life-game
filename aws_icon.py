@@ -120,6 +120,10 @@ class AWSIcon(pygame.sprite.Sprite):
         self.movement_threshold = 3.0  # 動きと判断する最小距離（ピクセル）
         self.max_stationary_frames = 300  # 停滞許容フレーム数（約5秒）
 
+        # 進化の進行状況（EvolutionSystemが更新する）
+        self.evolution_timer = 0       # 進化条件を満たしている継続フレーム数
+        self.evolution_progress = 0.0  # 進化までの進行度（0.0〜1.0）
+
         # AutoScalingの状態管理
         if self.service_type == "AutoScaling":
             self.autoscaling_state = 'monitoring'  # 'monitoring', 'scaling_out'
@@ -580,7 +584,13 @@ class AWSIcon(pygame.sprite.Sprite):
         # 依存関係の表示
         if self.dependencies and not self.dependency_satisfied:
             pygame.draw.circle(surface, (255, 0, 0), self.rect.center, 30, 1)
-        
+
+        # 進化の進行度の表示（隣接が続くほど円弧が伸びる）
+        if self.evolution_progress > 0:
+            arc_rect = self.rect.inflate(16, 16)
+            end_angle = 2 * math.pi * self.evolution_progress
+            pygame.draw.arc(surface, (0, 120, 255), arc_rect, 0, end_angle, 3)
+
         # 体力バーの表示
         if self.health < self.max_health:
             bar_width = 40
