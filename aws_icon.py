@@ -16,6 +16,34 @@ class AWSIcon(pygame.sprite.Sprite):
     STUCK_THRESHOLD = 60    # スタック状態と判断するフレーム数
     STUCK_FORCE_MULTIPLIER = 2.0  # スタック状態での分離力の倍率
     
+    # 体力が黄色の状態での動きに関する定数
+    YELLOW_HEALTH_RANDOM_MOVE_PROBABILITY = 0.05  # ランダムな動きを加える確率
+    YELLOW_HEALTH_MIN_FORCE = 0.3  # 最小の力
+    YELLOW_HEALTH_MAX_FORCE = 0.8  # 最大の力
+    
+    # 体力に関する定数
+    SURVIVAL_COST = 0.01  # 全アイコン共通の生存コスト
+    YELLOW_HEALTH_LOWER_THRESHOLD = 0.3  # 黄色体力の下限
+    YELLOW_HEALTH_UPPER_THRESHOLD = 0.6  # 黄色体力の上限
+    DEPENDENCY_HEALTH_DECREASE = 0.05  # 依存関係不満足時の体力減少
+    DEPENDENCY_HEALTH_RECOVERY = 0.05  # 依存関係満足時の体力回復
+
+    # AutoScalingに関する定数
+    AUTOSCALING_MONITORING_RADIUS = 150  # モニタリング範囲の半径（ピクセル）
+    AUTOSCALING_MIN_COOLDOWN_FRAMES = 180  # スケーリング後の最小クールダウン（3秒）
+    AUTOSCALING_MAX_COOLDOWN_FRAMES = 300  # スケーリング後の最大クールダウン（5秒）
+    AUTOSCALING_MIN_SCALE_DURATION = 90   # スケーリングの最小継続フレーム数（1.5秒）
+    AUTOSCALING_MAX_SCALE_DURATION = 150  # スケーリングの最大継続フレーム数（2.5秒）
+    AUTOSCALING_SCALE_UP_FACTOR = 1.5    # スケールアップ時の最大サイズ倍率
+    AUTOSCALING_SCALE_DOWN_FACTOR = 0.7  # スケールダウン時の最小サイズ倍率
+    AUTOSCALING_SCALE_STEP = 0.01        # スケーリング中のサイズ変化量（1フレームあたり）
+    AUTOSCALING_SCALE_RECOVER_STEP = 0.005  # 通常サイズへ戻る際の変化量（1フレームあたり）
+    AUTOSCALING_SCALE_UP_EC2_THRESHOLD = 5   # スケールアップ判断のEC2数閾値
+    AUTOSCALING_SCALE_DOWN_EC2_THRESHOLD = 3  # スケールダウン判断のEC2数閾値
+    AUTOSCALING_SCALING_PROBABILITY = 0.02   # スケーリング状態へ移行する確率
+    AUTOSCALING_SCALE_UP_SPEED = 3.0    # スケールアップ時の移動速度（即応性を表現）
+    AUTOSCALING_SCALE_DOWN_SPEED = 2.0  # スケールダウン時の移動速度（慎重さを表現）
+
     def __init__(self, service_type, position, velocity=None):
         super().__init__()
         self.service_type = service_type
@@ -79,6 +107,24 @@ class AWSIcon(pygame.sprite.Sprite):
         self.overlapping_icons = {}  # {icon_id: icon} 形式で重なっているアイコンを追跡
         self.overlap_duration = {}   # {icon_id: frames} 形式で重なり継続フレーム数を追跡
         self.stuck = False           # スタック状態のフラグ
+        
+        # 動きの追跡（停滞時のHealth減少用）
+        self.previous_position = list(position)  # 前フレームの位置
+        self.stationary_frames = 0  # 停滞しているフレーム数
+        self.movement_threshold = 3.0  # 動きと判断する最小距離（ピクセル）
+        self.max_stationary_frames = 300  # 停滞許容フレーム数（約5秒）
+
+        # AutoScalingの状態管理
+        if self.service_type == "AutoScaling":
+            self.autoscaling_state = 'monitoring'  # 'monitoring', 'scaling_up', 'scaling_down'
+            self.state_timer = 0
+            self.scale_duration = 0
+            self.scale_cooldown = 0
+            self.max_scale_cooldown = random.randint(
+                self.AUTOSCALING_MIN_COOLDOWN_FRAMES, self.AUTOSCALING_MAX_COOLDOWN_FRAMES)
+            self.target_ec2s = []
+            self.scale_factor = 1.0  # スケーリング係数（1.0が通常サイズ）
+            self.original_image = self.image.copy()  # 元の画像を保存
     
     def _set_dependencies(self):
         """サービスの依存関係を設定"""
@@ -94,6 +140,8 @@ class AWSIcon(pygame.sprite.Sprite):
             return ["S3"]
         elif self.service_type == "EBS":
             return ["EC2"]  # EBSはEC2に依存（EC2にアタッチされる）
+        elif self.service_type == "DynamoDB":
+            return ["Lambda"]  # DynamoDBはLambdaに依存
         elif self.service_type == "AutoScaling":
             return ["EC2"]  # AutoScalingはEC2に依存
         return []
@@ -213,14 +261,268 @@ class AWSIcon(pygame.sprite.Sprite):
             
             # 依存関係が満たされていない場合、体力を減少
             if not self.dependency_satisfied:
-                if self.service_type in ["EC2", "RDS", "API Gateway", "CloudFront"]:
-                    self.health = max(0, self.health - 0.1)
+                if self.service_type in ["EC2", "RDS", "API Gateway", "CloudFront", "DynamoDB"]:
+                    self.health = max(0, self.health - self.DEPENDENCY_HEALTH_DECREASE)
             elif self.health < self.max_health:
-                self.health = min(self.max_health, self.health + 0.05)
+                self.health = min(self.max_health, self.health + self.DEPENDENCY_HEALTH_RECOVERY)
         
         # 相互作用タイマーの更新
         if self.interaction_timer > 0:
             self.interaction_timer -= 1
+        
+        # 全アイコン共通の微細なHealth減少（生存コスト）
+        self.health = max(0, self.health - self.SURVIVAL_COST)
+        
+        # Healthが黄色の域（30-60%）の場合、ランダムな動きを加えて停滞を防ぐ
+        health_ratio = self.health / self.max_health
+        if self.YELLOW_HEALTH_LOWER_THRESHOLD < health_ratio <= self.YELLOW_HEALTH_UPPER_THRESHOLD:
+            # 低確率でランダムな力を加える
+            if random.random() < self.YELLOW_HEALTH_RANDOM_MOVE_PROBABILITY:
+                angle = random.uniform(0, 2 * math.pi)
+                force = random.uniform(self.YELLOW_HEALTH_MIN_FORCE, self.YELLOW_HEALTH_MAX_FORCE)
+                self.velocity[0] += math.cos(angle) * force
+                self.velocity[1] += math.sin(angle) * force
+        
+        # 動きの追跡と停滞時のHealth減少
+        self._check_movement_and_health()
+    
+    def _check_movement_and_health(self):
+        """動きを追跡し、停滞時にHealthを減少させる"""
+        # 現在の位置と前フレームの位置の距離を計算
+        current_pos = [self.rect.centerx, self.rect.centery]
+        distance_moved = math.hypot(
+            current_pos[0] - self.previous_position[0],
+            current_pos[1] - self.previous_position[1]
+        )
+        
+        # 動きが閾値以下の場合は停滞とみなす
+        if distance_moved < self.movement_threshold:
+            self.stationary_frames += 1
+        else:
+            self.stationary_frames = 0  # 動いた場合はカウンターをリセット
+            
+            # 依存関係を持たないアイコンは動いている間に回復
+            if not self.dependencies and self.health < self.max_health:
+                # 動きの速さに応じて回復量を調整（最大0.05/フレーム）
+                recovery_amount = min(0.05, distance_moved * 0.01)
+                self.health = min(self.max_health, self.health + recovery_amount)
+        
+        # 停滞時間が長すぎる場合はHealthを減少
+        if self.stationary_frames > self.max_stationary_frames:
+            self.health = max(0, self.health - 0.2)  # 停滞時の減少幅をさらに緩和
+        
+        # 前フレームの位置を更新
+        self.previous_position = current_pos.copy()
+    
+    def _apply_movement_pattern(self, all_icons):
+        """サービスタイプ固有の動きパターンを適用"""
+        if self.service_type == "API Gateway":
+            self._api_gateway_behavior(all_icons)
+        elif self.service_type == "Lambda":
+            self._lambda_behavior(all_icons)
+        elif self.service_type == "EC2":
+            self._ec2_behavior(all_icons)
+        elif self.service_type == "S3":
+            self._s3_behavior()
+        elif self.service_type == "EBS":
+            self._ebs_behavior(all_icons)
+        elif self.service_type == "VPC":
+            self._vpc_behavior(all_icons)
+        elif self.service_type == "AutoScaling":
+            self._autoscaling_behavior(all_icons)
+
+    def _ec2_behavior(self, all_icons):
+        """EC2の動作を実装"""
+        # EC2は基本的にランダムな動きをする
+        if random.random() < 0.1:  # 10%の確率で方向転換
+            angle = random.uniform(0, 2 * math.pi)
+            force = random.uniform(0.2, 0.5)
+            self.velocity[0] += math.cos(angle) * force
+            self.velocity[1] += math.sin(angle) * force
+
+    def _s3_behavior(self):
+        """S3の動作を実装"""
+        # S3は比較的安定した動きをする
+        # 速度を徐々に減衰させる（安定性を表現）
+        self.velocity[0] *= 0.98
+        self.velocity[1] *= 0.98
+
+    def _ebs_behavior(self, all_icons):
+        """EBSの動作を実装"""
+        # EBSは近くのEC2に引き寄せられる傾向がある
+        if all_icons:
+            ec2_icons = [icon for icon in all_icons if icon.service_type == "EC2"]
+            if ec2_icons:
+                # 最も近いEC2を見つける
+                closest_ec2 = min(ec2_icons, key=lambda ec2: 
+                    math.sqrt((self.rect.centerx - ec2.rect.centerx)**2 + 
+                             (self.rect.centery - ec2.rect.centery)**2))
+                
+                # EC2に向かう力を加える
+                if self._is_near(closest_ec2, 200):
+                    dx = closest_ec2.rect.centerx - self.rect.centerx
+                    dy = closest_ec2.rect.centery - self.rect.centery
+                    distance = math.sqrt(dx**2 + dy**2)
+                    if distance > 0:
+                        force = 0.1
+                        self.velocity[0] += (dx / distance) * force
+                        self.velocity[1] += (dy / distance) * force
+
+    def _vpc_behavior(self, all_icons):
+        """VPCの動作を実装"""
+        # VPCは比較的ゆっくりと動き、他のサービスを包含する傾向がある
+        # 速度を制限する
+        max_speed = 1.0
+        speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+        if speed > max_speed:
+            self.velocity[0] = (self.velocity[0] / speed) * max_speed
+            self.velocity[1] = (self.velocity[1] / speed) * max_speed
+        
+        # 時々方向を微調整
+        if random.random() < 0.05:  # 5%の確率
+            angle = random.uniform(-0.2, 0.2)  # 小さな角度変更
+            cos_a, sin_a = math.cos(angle), math.sin(angle)
+            new_vx = self.velocity[0] * cos_a - self.velocity[1] * sin_a
+            new_vy = self.velocity[0] * sin_a + self.velocity[1] * cos_a
+            self.velocity[0] = new_vx
+            self.velocity[1] = new_vy
+
+        # VPCの数が5個以下の場合、体力を回復する（希少性による重要性の増加）
+        if all_icons:
+            vpc_count = sum(1 for icon in all_icons if icon.service_type == "VPC")
+            if vpc_count <= 5:
+                recovery_rate = 0.2  # 通常の回復速度より高い
+                self.health = min(self.max_health, self.health + recovery_rate)
+
+    def _autoscaling_behavior(self, all_icons):
+        """AutoScalingの動作を実装"""
+        if self.autoscaling_state == 'monitoring':
+            # モニタリング状態: EC2の集団を監視するような動き
+
+            # 方向転換の確率を中程度に設定（監視パターンを表現）
+            if random.random() < 0.03:  # 3%の確率で方向転換
+                angle = random.uniform(0, 2 * math.pi)
+                speed = random.uniform(1.5, 2.2)
+                self.velocity = [
+                    math.cos(angle) * speed,
+                    math.sin(angle) * speed
+                ]
+
+            if all_icons:
+                ec2_icons = [icon for icon in all_icons if icon.service_type == "EC2"]
+
+                if len(ec2_icons) >= 3:
+                    # EC2の集中している場所（中心点）を計算
+                    center_x = sum(icon.rect.centerx for icon in ec2_icons) / len(ec2_icons)
+                    center_y = sum(icon.rect.centery for icon in ec2_icons) / len(ec2_icons)
+
+                    dx = center_x - self.rect.centerx
+                    dy = center_y - self.rect.centery
+                    distance = math.sqrt(dx*dx + dy*dy)
+
+                    # EC2の集団に向かう
+                    if distance > 0:
+                        attraction = min(0.1, 30 / distance)
+                        self.velocity[0] += (dx / distance) * attraction
+                        self.velocity[1] += (dy / distance) * attraction
+
+                    # EC2の集団の近くにいる場合、スケーリング判断
+                    if distance < self.AUTOSCALING_MONITORING_RADIUS and self.scale_cooldown <= 0:
+                        if (len(ec2_icons) > self.AUTOSCALING_SCALE_UP_EC2_THRESHOLD
+                                and random.random() < self.AUTOSCALING_SCALING_PROBABILITY):
+                            # EC2が多い場合、スケールアップ（サイズ拡大）
+                            self.autoscaling_state = 'scaling_up'
+                            self.state_timer = 0
+                            self.scale_duration = random.randint(
+                                self.AUTOSCALING_MIN_SCALE_DURATION, self.AUTOSCALING_MAX_SCALE_DURATION)
+                            self.target_ec2s = random.sample(ec2_icons, min(3, len(ec2_icons)))
+                        elif (len(ec2_icons) < self.AUTOSCALING_SCALE_DOWN_EC2_THRESHOLD
+                                and random.random() < self.AUTOSCALING_SCALING_PROBABILITY):
+                            # EC2が少ない場合、スケールダウン（サイズ縮小）
+                            self.autoscaling_state = 'scaling_down'
+                            self.state_timer = 0
+                            self.scale_duration = random.randint(
+                                self.AUTOSCALING_MIN_SCALE_DURATION, self.AUTOSCALING_MAX_SCALE_DURATION)
+                            self.target_ec2s = random.sample(ec2_icons, min(2, len(ec2_icons)))
+
+                elif len(ec2_icons) == 0:
+                    # EC2がない場合、ランダムに動き回る
+                    if random.random() < 0.05:  # 5%の確率で方向転換
+                        angle = random.uniform(0, 2 * math.pi)
+                        speed = random.uniform(1.0, 2.0)
+                        self.velocity = [
+                            math.cos(angle) * speed,
+                            math.sin(angle) * speed
+                        ]
+
+            # クールダウンの更新
+            if self.scale_cooldown > 0:
+                self.scale_cooldown -= 1
+
+            # スケーリング終了後、徐々に通常サイズに戻す
+            if self.scale_factor != 1.0:
+                if self.scale_factor > 1.0:
+                    self.scale_factor = max(1.0, self.scale_factor - self.AUTOSCALING_SCALE_RECOVER_STEP)
+                else:
+                    self.scale_factor = min(1.0, self.scale_factor + self.AUTOSCALING_SCALE_RECOVER_STEP)
+                self._apply_scale_factor()
+
+        elif self.autoscaling_state == 'scaling_up':
+            # スケールアップ状態: サイズを大きくし、EC2に接近
+            self.scale_factor = min(
+                self.scale_factor + self.AUTOSCALING_SCALE_STEP, self.AUTOSCALING_SCALE_UP_FACTOR)
+            self._apply_scale_factor()
+
+            # ターゲットのEC2に高速で接近（スケーリングの即応性を表現）
+            targets = [ec2 for ec2 in self.target_ec2s if ec2.health > 0]
+            if targets:
+                target = random.choice(targets)
+                dx = target.rect.centerx - self.rect.centerx
+                dy = target.rect.centery - self.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                if distance > 0:
+                    speed = self.AUTOSCALING_SCALE_UP_SPEED
+                    self.velocity = [(dx / distance) * speed, (dy / distance) * speed]
+
+            self._advance_scaling_timer()
+
+        elif self.autoscaling_state == 'scaling_down':
+            # スケールダウン状態: サイズを小さくし、EC2から離れる
+            self.scale_factor = max(
+                self.scale_factor - self.AUTOSCALING_SCALE_STEP, self.AUTOSCALING_SCALE_DOWN_FACTOR)
+            self._apply_scale_factor()
+
+            # ターゲットEC2の中心点から中速で離れる（スケールダウンの慎重さを表現）
+            targets = [ec2 for ec2 in self.target_ec2s if ec2.health > 0]
+            if targets:
+                center_x = sum(icon.rect.centerx for icon in targets) / len(targets)
+                center_y = sum(icon.rect.centery for icon in targets) / len(targets)
+                dx = self.rect.centerx - center_x
+                dy = self.rect.centery - center_y
+                distance = math.sqrt(dx*dx + dy*dy)
+                if distance > 0:
+                    speed = self.AUTOSCALING_SCALE_DOWN_SPEED
+                    self.velocity = [(dx / distance) * speed, (dy / distance) * speed]
+
+            self._advance_scaling_timer()
+
+    def _apply_scale_factor(self):
+        """scale_factorに応じてアイコン画像とrectを更新（中心位置は維持）"""
+        base_width, base_height = self.original_image.get_size()
+        scaled_size = (int(base_width * self.scale_factor), int(base_height * self.scale_factor))
+        self.image = pygame.transform.scale(self.original_image, scaled_size)
+        center = self.rect.center
+        self.rect = self.image.get_rect()
+        self.rect.center = center
+
+    def _advance_scaling_timer(self):
+        """スケーリング状態のタイマーを進め、終了したらモニタリング状態に戻す"""
+        self.state_timer += 1
+        if self.state_timer >= self.scale_duration:
+            self.autoscaling_state = 'monitoring'
+            self.state_timer = 0
+            self.target_ec2s = []
+            self.scale_cooldown = self.max_scale_cooldown  # クールダウン開始
 
     def _is_near(self, other_icon, distance_threshold):
         """他のアイコンが近くにいるかを判定"""
@@ -228,7 +530,7 @@ class AWSIcon(pygame.sprite.Sprite):
         dy = self.rect.centery - other_icon.rect.centery
         distance = math.sqrt(dx*dx + dy*dy)
         return distance < distance_threshold
-    
+
     def draw(self, surface):
         """アイコンを描画"""
         # 通常の描画
@@ -393,4 +695,167 @@ class AWSIcon(pygame.sprite.Sprite):
                     self.patrol_range = [100, GAME_AREA_WIDTH - 100]  # パトロール範囲（x軸）
                     if self.patrol_axis == 'y':
                         self.patrol_range = [100, SCREEN_HEIGHT - 100]  # パトロール範囲（y軸）
-
+    def _lambda_behavior(self, all_icons):
+        """Lambdaの振る舞いを管理する"""
+        # Lambdaの場合のみ実行
+        if self.service_type != "Lambda":
+            return
+            
+        # Lambdaの状態管理（初期化）
+        if not hasattr(self, 'lambda_state'):
+            self.lambda_state = 'normal'  # 'normal', 'active', 'burst'
+            self.state_timer = 0
+            self.burst_duration = 0
+            self.target_position = None
+            self.burst_cooldown = 0
+            self.max_burst_cooldown = random.randint(180, 360)  # 3〜6秒のクールダウン
+            
+        # 基本速度を設定
+        base_speed = 1.5  # 通常状態の基本速度
+        
+        # 状態に応じた動作
+        if self.lambda_state == 'normal':
+            # 通常状態: 比較的ランダムな動き
+            
+            # 方向転換の確率を高く設定（ランダムな動きを表現）
+            if random.random() < 0.05:  # 5%の確率で方向転換（EC2の2.5倍）
+                angle = random.uniform(0, 2 * math.pi)
+                speed = random.uniform(1.0, 2.0)  # 速度もランダムに変化
+                self.velocity = [
+                    math.cos(angle) * speed,
+                    math.sin(angle) * speed
+                ]
+            
+            # 時々急加速する（バースト状態に移行）
+            if random.random() < 0.01 and self.burst_cooldown <= 0:  # 1%の確率でバースト
+                self.lambda_state = 'burst'
+                self.state_timer = 0
+                self.burst_duration = random.randint(60, 120)  # 1〜2秒のバースト
+                
+                # ランダムな目標位置を設定（画面内）
+                target_x = random.randint(50, GAME_AREA_WIDTH - 50)
+                target_y = random.randint(50, SCREEN_HEIGHT - 50)
+                self.target_position = [target_x, target_y]
+                
+                # IAMアイコンが近くにある場合は、そちらに向かう確率を高める
+                if all_icons:
+                    iam_icons = [icon for icon in all_icons if icon.service_type == "IAM"]
+                    if iam_icons and random.random() < 0.4:  # 40%の確率でIAMに向かう
+                        iam_icon = random.choice(iam_icons)
+                        self.target_position = [iam_icon.rect.centerx, iam_icon.rect.centery]
+            
+            # API Gatewayが近くにある場合、アクティブ状態に移行
+            if all_icons:
+                api_gateways = [icon for icon in all_icons if icon.service_type == "API Gateway"]
+                for api in api_gateways:
+                    if self._is_near(api, 100):  # 100px以内にAPI Gatewayがある
+                        self.lambda_state = 'active'
+                        self.state_timer = 0
+                        break
+            
+            # クールダウンの更新
+            if self.burst_cooldown > 0:
+                self.burst_cooldown -= 1
+                
+        elif self.lambda_state == 'active':
+            # アクティブ状態: API Gatewayとの相互作用中
+            
+            # 速度を上げる（処理中の高負荷を表現）
+            current_speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+            target_speed = 2.0  # アクティブ状態の目標速度
+            
+            if current_speed > 0:
+                # 現在の速度を目標速度に調整
+                ratio = target_speed / current_speed
+                self.velocity = [v * ratio for v in self.velocity]
+            
+            # 方向をより頻繁に変える（忙しい動きを表現）
+            if random.random() < 0.1:  # 10%の確率で方向転換
+                angle_change = random.uniform(-math.pi/2, math.pi/2)  # ±90度
+                speed = math.sqrt(self.velocity[0]**2 + self.velocity[1]**2)
+                if speed > 0:
+                    current_angle = math.atan2(self.velocity[1], self.velocity[0])
+                    new_angle = current_angle + angle_change
+                    self.velocity = [
+                        math.cos(new_angle) * speed,
+                        math.sin(new_angle) * speed
+                    ]
+            
+            # 状態タイマーの更新
+            self.state_timer += 1
+            
+            # 一定時間経過後、通常状態に戻る
+            if self.state_timer > 120:  # 2秒後
+                self.lambda_state = 'normal'
+                self.state_timer = 0
+                
+        elif self.lambda_state == 'burst':
+            # バースト状態: 高速で目標位置に向かう
+            
+            if self.target_position:
+                # 目標位置への方向ベクトルを計算
+                dx = self.target_position[0] - self.rect.centerx
+                dy = self.target_position[1] - self.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance > 0:  # 0除算を防ぐ
+                    # 高速で移動（バーストの高速性を表現）
+                    speed = 5.0
+                    direction_x = dx / distance
+                    direction_y = dy / distance
+                    self.velocity = [direction_x * speed, direction_y * speed]
+            
+            # バースト時間の更新
+            self.state_timer += 1
+            
+            # バースト終了判定
+            if self.state_timer >= self.burst_duration:
+                self.lambda_state = 'normal'
+                self.state_timer = 0
+                self.burst_cooldown = self.max_burst_cooldown  # クールダウン開始
+                
+        # IAMアイコンとの関係（依存関係）
+        if all_icons:
+            iam_icons = [icon for icon in all_icons if icon.service_type == "IAM"]
+            if iam_icons:
+                # 最も近いIAMを探す
+                closest_iam = None
+                min_distance = float('inf')
+                
+                for icon in iam_icons:
+                    dx = icon.rect.centerx - self.rect.centerx
+                    dy = icon.rect.centery - self.rect.centery
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if distance < min_distance:
+                        min_distance = distance
+                        closest_iam = icon
+                
+                # 最も近いIAMが見つかった場合、その方向に弱い引力
+                if closest_iam:
+                    dx = closest_iam.rect.centerx - self.rect.centerx
+                    dy = closest_iam.rect.centery - self.rect.centery
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if distance > 200:  # 200px以上離れている場合
+                        # 引力の強さ（距離に反比例）
+                        attraction = 0.05
+                        direction_x = dx / distance
+                        direction_y = dy / distance
+                        self.velocity[0] += direction_x * attraction
+                        self.velocity[1] += direction_y * attraction
+                        
+            # DynamoDBとの関係（DynamoDBがLambdaに依存する関係を表現）
+            dynamodb_icons = [icon for icon in all_icons if icon.service_type == "DynamoDB"]
+            for dynamodb in dynamodb_icons:
+                # DynamoDBとの距離を計算
+                dx = self.rect.centerx - dynamodb.rect.centerx
+                dy = self.rect.centery - dynamodb.rect.centery
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                # 近くにいる場合は相互作用を記録
+                if distance < 100:
+                    self.last_interaction = dynamodb
+                    self.interaction_timer = 30
+                    dynamodb.last_interaction = self
+                    dynamodb.interaction_timer = 30
