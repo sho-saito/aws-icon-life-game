@@ -172,9 +172,8 @@ class Game:
         # ベクトルの長さ（距離）を計算
         distance = math.sqrt(dx*dx + dy*dy)
         
-        # アイコンの半径（サイズの半分）
-        icon_radius = icon1.rect.width / 2
-        min_distance = icon_radius * 2  # 最小距離は両方のアイコンの半径の合計
+        # 最小距離は両方のアイコンの半径の合計（サイズが異なるアイコンにも対応）
+        min_distance = icon1.rect.width / 2 + icon2.rect.width / 2
         
         # 重なっている場合のみ調整
         if distance < min_distance and distance > 0:  # 0除算を防ぐ

@@ -120,8 +120,6 @@ class AWSIcon(pygame.sprite.Sprite):
             self.state_timer = 0
             self.scale_duration = 0
             self.scale_cooldown = 0
-            self.max_scale_cooldown = random.randint(
-                self.AUTOSCALING_MIN_COOLDOWN_FRAMES, self.AUTOSCALING_MAX_COOLDOWN_FRAMES)
             self.target_ec2s = []
             self.scale_factor = 1.0  # スケーリング係数（1.0が通常サイズ）
             self.original_image = self.image.copy()  # 元の画像を保存
@@ -155,12 +153,14 @@ class AWSIcon(pygame.sprite.Sprite):
         
         # アイコンの半径（簡易的に幅の半分を使用）
         radius = self.rect.width / 2
-        
-        # 重なりの度合いを計算（0なら完全に重なっている、radius*2なら接している）
-        overlap = max(0, radius * 2 - distance)
-        
+        combined_radius = radius + other_icon.rect.width / 2
+
+        # 重なりの度合いを計算（0なら完全に重なっている、combined_radiusなら接している）
+        overlap = max(0, combined_radius - distance)
+
         # 重なりが閾値を超えている場合、分離力を適用
-        if overlap > self.OVERLAP_THRESHOLD:
+        # （閾値は50pxアイコン同士＝combined_radius 50を基準にサイズへ比例させる）
+        if overlap > self.OVERLAP_THRESHOLD * combined_radius / 50:
             # 他のアイコンのIDを取得（Pythonのオブジェクトのidを使用）
             other_id = id(other_icon)
             
@@ -411,7 +411,7 @@ class AWSIcon(pygame.sprite.Sprite):
             if all_icons:
                 ec2_icons = [icon for icon in all_icons if icon.service_type == "EC2"]
 
-                if len(ec2_icons) >= 3:
+                if ec2_icons:
                     # EC2の集中している場所（中心点）を計算
                     center_x = sum(icon.rect.centerx for icon in ec2_icons) / len(ec2_icons)
                     center_y = sum(icon.rect.centery for icon in ec2_icons) / len(ec2_icons)
@@ -427,25 +427,18 @@ class AWSIcon(pygame.sprite.Sprite):
                         self.velocity[1] += (dy / distance) * attraction
 
                     # EC2の集団の近くにいる場合、スケーリング判断
-                    if distance < self.AUTOSCALING_MONITORING_RADIUS and self.scale_cooldown <= 0:
-                        if (len(ec2_icons) > self.AUTOSCALING_SCALE_UP_EC2_THRESHOLD
-                                and random.random() < self.AUTOSCALING_SCALING_PROBABILITY):
+                    if (distance < self.AUTOSCALING_MONITORING_RADIUS and self.scale_cooldown <= 0
+                            and random.random() < self.AUTOSCALING_SCALING_PROBABILITY):
+                        if len(ec2_icons) > self.AUTOSCALING_SCALE_UP_EC2_THRESHOLD:
                             # EC2が多い場合、スケールアップ（サイズ拡大）
-                            self.autoscaling_state = 'scaling_up'
-                            self.state_timer = 0
-                            self.scale_duration = random.randint(
-                                self.AUTOSCALING_MIN_SCALE_DURATION, self.AUTOSCALING_MAX_SCALE_DURATION)
-                            self.target_ec2s = random.sample(ec2_icons, min(3, len(ec2_icons)))
-                        elif (len(ec2_icons) < self.AUTOSCALING_SCALE_DOWN_EC2_THRESHOLD
-                                and random.random() < self.AUTOSCALING_SCALING_PROBABILITY):
+                            self._start_scaling(
+                                'scaling_up', random.sample(ec2_icons, min(3, len(ec2_icons))))
+                        elif len(ec2_icons) < self.AUTOSCALING_SCALE_DOWN_EC2_THRESHOLD:
                             # EC2が少ない場合、スケールダウン（サイズ縮小）
-                            self.autoscaling_state = 'scaling_down'
-                            self.state_timer = 0
-                            self.scale_duration = random.randint(
-                                self.AUTOSCALING_MIN_SCALE_DURATION, self.AUTOSCALING_MAX_SCALE_DURATION)
-                            self.target_ec2s = random.sample(ec2_icons, min(2, len(ec2_icons)))
+                            self._start_scaling(
+                                'scaling_down', random.sample(ec2_icons, min(2, len(ec2_icons))))
 
-                elif len(ec2_icons) == 0:
+                else:
                     # EC2がない場合、ランダムに動き回る
                     if random.random() < 0.05:  # 5%の確率で方向転換
                         angle = random.uniform(0, 2 * math.pi)
@@ -476,7 +469,7 @@ class AWSIcon(pygame.sprite.Sprite):
             # ターゲットのEC2に高速で接近（スケーリングの即応性を表現）
             targets = [ec2 for ec2 in self.target_ec2s if ec2.health > 0]
             if targets:
-                target = random.choice(targets)
+                target = targets[0]  # 生存している先頭のターゲットを追い続ける（毎フレームの再抽選によるぶれを防ぐ）
                 dx = target.rect.centerx - self.rect.centerx
                 dy = target.rect.centery - self.rect.centery
                 distance = math.sqrt(dx*dx + dy*dy)
@@ -506,10 +499,20 @@ class AWSIcon(pygame.sprite.Sprite):
 
             self._advance_scaling_timer()
 
+    def _start_scaling(self, state, targets):
+        """スケーリング状態を開始する"""
+        self.autoscaling_state = state
+        self.state_timer = 0
+        self.scale_duration = random.randint(
+            self.AUTOSCALING_MIN_SCALE_DURATION, self.AUTOSCALING_MAX_SCALE_DURATION)
+        self.target_ec2s = targets
+
     def _apply_scale_factor(self):
         """scale_factorに応じてアイコン画像とrectを更新（中心位置は維持）"""
         base_width, base_height = self.original_image.get_size()
         scaled_size = (int(base_width * self.scale_factor), int(base_height * self.scale_factor))
+        if scaled_size == self.image.get_size():
+            return  # ピクセルサイズが変わらない場合は再スケールしない
         self.image = pygame.transform.scale(self.original_image, scaled_size)
         center = self.rect.center
         self.rect = self.image.get_rect()
@@ -522,7 +525,8 @@ class AWSIcon(pygame.sprite.Sprite):
             self.autoscaling_state = 'monitoring'
             self.state_timer = 0
             self.target_ec2s = []
-            self.scale_cooldown = self.max_scale_cooldown  # クールダウン開始
+            self.scale_cooldown = random.randint(
+                self.AUTOSCALING_MIN_COOLDOWN_FRAMES, self.AUTOSCALING_MAX_COOLDOWN_FRAMES)  # クールダウン開始
 
     def _is_near(self, other_icon, distance_threshold):
         """他のアイコンが近くにいるかを判定"""
