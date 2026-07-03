@@ -279,7 +279,8 @@ class AWSIcon(pygame.sprite.Sprite):
             if not self.dependency_satisfied:
                 if self.service_type in ["EC2", "RDS", "API Gateway", "CloudFront", "DynamoDB"]:
                     self.health = max(0, self.health - self.DEPENDENCY_HEALTH_DECREASE)
-            elif self.health < self.max_health:
+            elif self.health < self.max_health and self.service_type != "AutoScaling":
+                # AutoScalingは依存関係（EC2近接）による体力回復を行わない
                 self.health = min(self.max_health, self.health + self.DEPENDENCY_HEALTH_RECOVERY)
         
         # 相互作用タイマーの更新
