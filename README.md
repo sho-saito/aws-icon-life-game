@@ -48,6 +48,7 @@ python main.py
 ## サポートされているAWSサービス
 
 - EC2, S3, VPC, Lambda, EBS, RDS, IAM, DynamoDB, API Gateway, CloudFront
+- AutoScaling（ランダム配置では出現せず、EC2の進化でのみ登場）
 
 ## 開発について
 

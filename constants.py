@@ -13,8 +13,9 @@ UI_BACKGROUND_COLOR = (230, 230, 230)
 UI_TEXT_COLOR = (50, 50, 50)
 UI_BORDER_COLOR = (200, 200, 200)
 
-# AWSアイコンの種類
-AWS_ICONS = ["EC2", "S3", "VPC", "Lambda", "EBS", "RDS", "IAM", "DynamoDB", "API Gateway", "CloudFront", "AutoScaling"]
+# AWSアイコンの種類（ランダム配置で出現するもの）
+# AutoScalingはランダム配置では出現せず、EC2の進化によってのみ発生する
+AWS_ICONS = ["EC2", "S3", "VPC", "Lambda", "EBS", "RDS", "IAM", "DynamoDB", "API Gateway", "CloudFront"]
 
 # アイコンの色マッピング
 ICON_COLORS = {
