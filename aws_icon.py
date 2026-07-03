@@ -156,8 +156,6 @@ class AWSIcon(pygame.sprite.Sprite):
             return ["EC2"]  # EBSはEC2に依存（EC2にアタッチされる）
         elif self.service_type == "DynamoDB":
             return ["Lambda"]  # DynamoDBはLambdaに依存
-        elif self.service_type == "AutoScaling":
-            return ["EC2"]  # AutoScalingはEC2に依存
         return []
         
     def _handle_overlap(self, other_icon):
@@ -319,7 +317,9 @@ class AWSIcon(pygame.sprite.Sprite):
             self.stationary_frames = 0  # 動いた場合はカウンターをリセット
             
             # 依存関係を持たないアイコンは動いている間に回復
-            if not self.dependencies and self.health < self.max_health:
+            # （AutoScalingは回復対象外）
+            if (not self.dependencies and self.service_type != "AutoScaling"
+                    and self.health < self.max_health):
                 # 動きの速さに応じて回復量を調整（最大0.05/フレーム）
                 recovery_amount = min(0.05, distance_moved * 0.01)
                 self.health = min(self.max_health, self.health + recovery_amount)
