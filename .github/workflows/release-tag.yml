@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-tag-main
+
 jobs:
   tag:
     runs-on: ubuntu-latest
