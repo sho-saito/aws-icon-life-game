@@ -446,30 +446,8 @@ class AWSIcon(pygame.sprite.Sprite):
             if all_icons:
                 ec2_icons = [icon for icon in all_icons if icon.service_type == "EC2"]
 
-                if ec2_icons:
-                    # EC2の集中している場所（中心点）を計算
-                    center_x = sum(icon.rect.centerx for icon in ec2_icons) / len(ec2_icons)
-                    center_y = sum(icon.rect.centery for icon in ec2_icons) / len(ec2_icons)
-
-                    dx = center_x - self.rect.centerx
-                    dy = center_y - self.rect.centery
-                    distance = math.sqrt(dx*dx + dy*dy)
-
-                    # EC2の集団に向かう
-                    if distance > 0:
-                        attraction = min(0.1, 30 / distance)
-                        self.velocity[0] += (dx / distance) * attraction
-                        self.velocity[1] += (dy / distance) * attraction
-
-                else:
-                    # EC2がない場合、ランダムに動き回る
-                    if random.random() < 0.05:  # 5%の確率で方向転換
-                        angle = random.uniform(0, 2 * math.pi)
-                        speed = random.uniform(1.0, 2.0)
-                        self.velocity = [
-                            math.cos(angle) * speed,
-                            math.sin(angle) * speed
-                        ]
+                # AutoScalingはEC2の集団に引き寄せられず、独立してモニタリングしながら
+                # ランダムに動き回る（上部の方向転換ロジックに委ねる）
 
                 # 監視範囲内のEC2数をDesiredCountと比較してスケーリング判断
                 nearby_ec2s = [ec2 for ec2 in ec2_icons
