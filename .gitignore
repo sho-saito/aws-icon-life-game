@@ -2,8 +2,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
 
 # 仮想環境
+.venv/
 venv/
 env/
 ENV/
