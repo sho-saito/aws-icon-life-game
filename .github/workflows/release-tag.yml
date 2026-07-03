@@ -67,6 +67,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.create_tag.outputs.tag }}
         run: |
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --generate-notes
+          max_attempts=3
+          attempt=0
+          until gh release create "$TAG" --title "$TAG" --generate-notes; do
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "Failed to create release for $TAG after $max_attempts attempts (tag was created successfully)"
+              exit 1
+            fi
+            echo "Release creation failed, retrying ($attempt/$max_attempts)..."
+            sleep 5
+          done
