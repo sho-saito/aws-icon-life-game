@@ -343,6 +343,25 @@ class AWSIcon(pygame.sprite.Sprite):
             self.velocity[0] += math.cos(angle) * force
             self.velocity[1] += math.sin(angle) * force
 
+        # 近くのAutoScalingに引き寄せられる（管理下のフリートとしてまとまる傾向）
+        if all_icons:
+            autoscaling_icons = [icon for icon in all_icons if icon.service_type == "AutoScaling"]
+            if autoscaling_icons:
+                # 最も近いAutoScalingを見つける
+                closest_autoscaling = min(autoscaling_icons, key=lambda a:
+                    math.sqrt((self.rect.centerx - a.rect.centerx)**2 +
+                             (self.rect.centery - a.rect.centery)**2))
+
+                # AutoScalingに向かう力を加える
+                if self._is_near(closest_autoscaling, 250):
+                    dx = closest_autoscaling.rect.centerx - self.rect.centerx
+                    dy = closest_autoscaling.rect.centery - self.rect.centery
+                    distance = math.sqrt(dx**2 + dy**2)
+                    if distance > 60:  # 近すぎる場合は引力を働かせない（重なり防止）
+                        force = 0.12
+                        self.velocity[0] += (dx / distance) * force
+                        self.velocity[1] += (dy / distance) * force
+
     def _s3_behavior(self):
         """S3の動作を実装"""
         # S3は比較的安定した動きをする
