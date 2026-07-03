@@ -29,20 +29,22 @@ class AWSIcon(pygame.sprite.Sprite):
     DEPENDENCY_HEALTH_RECOVERY = 0.05  # 依存関係満足時の体力回復
 
     # AutoScalingに関する定数
+    # Auto Scalingは水平スケーリング（スケールアウト＝EC2追加、スケールイン＝EC2削減）を表現する
     AUTOSCALING_MONITORING_RADIUS = 150  # モニタリング範囲の半径（ピクセル）
     AUTOSCALING_MIN_COOLDOWN_FRAMES = 180  # スケーリング後の最小クールダウン（3秒）
     AUTOSCALING_MAX_COOLDOWN_FRAMES = 300  # スケーリング後の最大クールダウン（5秒）
     AUTOSCALING_MIN_SCALE_DURATION = 90   # スケーリングの最小継続フレーム数（1.5秒）
     AUTOSCALING_MAX_SCALE_DURATION = 150  # スケーリングの最大継続フレーム数（2.5秒）
-    AUTOSCALING_SCALE_UP_FACTOR = 1.5    # スケールアップ時の最大サイズ倍率
-    AUTOSCALING_SCALE_DOWN_FACTOR = 0.7  # スケールダウン時の最小サイズ倍率
+    AUTOSCALING_SCALE_OUT_FACTOR = 1.5   # スケールアウト動作中の最大サイズ倍率（活動中の視覚表現）
+    AUTOSCALING_SCALE_IN_FACTOR = 0.7    # スケールイン動作中の最小サイズ倍率（活動中の視覚表現）
     AUTOSCALING_SCALE_STEP = 0.01        # スケーリング中のサイズ変化量（1フレームあたり）
     AUTOSCALING_SCALE_RECOVER_STEP = 0.005  # 通常サイズへ戻る際の変化量（1フレームあたり）
-    AUTOSCALING_SCALE_UP_EC2_THRESHOLD = 5   # スケールアップ判断のEC2数閾値
-    AUTOSCALING_SCALE_DOWN_EC2_THRESHOLD = 3  # スケールダウン判断のEC2数閾値
+    AUTOSCALING_SCALE_OUT_EC2_THRESHOLD = 3  # EC2がこの数未満ならスケールアウト（EC2を追加）
+    AUTOSCALING_SCALE_IN_EC2_THRESHOLD = 5   # EC2がこの数を超えたらスケールイン（EC2を削減）
     AUTOSCALING_SCALING_PROBABILITY = 0.02   # スケーリング状態へ移行する確率
-    AUTOSCALING_SCALE_UP_SPEED = 3.0    # スケールアップ時の移動速度（即応性を表現）
-    AUTOSCALING_SCALE_DOWN_SPEED = 2.0  # スケールダウン時の移動速度（慎重さを表現）
+    AUTOSCALING_SCALE_OUT_SPEED = 3.0   # スケールアウト時の移動速度（即応性を表現）
+    AUTOSCALING_SCALE_IN_SPEED = 2.0    # スケールイン時の移動速度（慎重さを表現）
+    AUTOSCALING_SPAWN_OFFSET = 60       # スケールアウトで起動するEC2の配置距離（ピクセル）
 
     def __init__(self, service_type, position, velocity=None):
         super().__init__()
@@ -116,11 +118,12 @@ class AWSIcon(pygame.sprite.Sprite):
 
         # AutoScalingの状態管理
         if self.service_type == "AutoScaling":
-            self.autoscaling_state = 'monitoring'  # 'monitoring', 'scaling_up', 'scaling_down'
+            self.autoscaling_state = 'monitoring'  # 'monitoring', 'scaling_out', 'scaling_in'
             self.state_timer = 0
             self.scale_duration = 0
             self.scale_cooldown = 0
             self.target_ec2s = []
+            self.spawn_requests = []  # スケールアウトで起動するアイコンの (service_type, position) リスト
             self.scale_factor = 1.0  # スケーリング係数（1.0が通常サイズ）
             self.original_image = self.image.copy()  # 元の画像を保存
     
@@ -429,14 +432,14 @@ class AWSIcon(pygame.sprite.Sprite):
                     # EC2の集団の近くにいる場合、スケーリング判断
                     if (distance < self.AUTOSCALING_MONITORING_RADIUS and self.scale_cooldown <= 0
                             and random.random() < self.AUTOSCALING_SCALING_PROBABILITY):
-                        if len(ec2_icons) > self.AUTOSCALING_SCALE_UP_EC2_THRESHOLD:
-                            # EC2が多い場合、スケールアップ（サイズ拡大）
+                        if len(ec2_icons) < self.AUTOSCALING_SCALE_OUT_EC2_THRESHOLD:
+                            # EC2が足りない場合、スケールアウト（EC2を追加）
                             self._start_scaling(
-                                'scaling_up', random.sample(ec2_icons, min(3, len(ec2_icons))))
-                        elif len(ec2_icons) < self.AUTOSCALING_SCALE_DOWN_EC2_THRESHOLD:
-                            # EC2が少ない場合、スケールダウン（サイズ縮小）
+                                'scaling_out', random.sample(ec2_icons, min(2, len(ec2_icons))))
+                        elif len(ec2_icons) > self.AUTOSCALING_SCALE_IN_EC2_THRESHOLD:
+                            # EC2が多すぎる場合、スケールイン（EC2を削減）
                             self._start_scaling(
-                                'scaling_down', random.sample(ec2_icons, min(2, len(ec2_icons))))
+                                'scaling_in', random.sample(ec2_icons, min(2, len(ec2_icons))))
 
                 else:
                     # EC2がない場合、ランダムに動き回る
@@ -447,6 +450,11 @@ class AWSIcon(pygame.sprite.Sprite):
                             math.cos(angle) * speed,
                             math.sin(angle) * speed
                         ]
+
+                    # フリートが空の場合もスケールアウトでEC2を起動する
+                    if (self.scale_cooldown <= 0
+                            and random.random() < self.AUTOSCALING_SCALING_PROBABILITY):
+                        self._start_scaling('scaling_out', [])
 
             # クールダウンの更新
             if self.scale_cooldown > 0:
@@ -460,13 +468,14 @@ class AWSIcon(pygame.sprite.Sprite):
                     self.scale_factor = min(1.0, self.scale_factor + self.AUTOSCALING_SCALE_RECOVER_STEP)
                 self._apply_scale_factor()
 
-        elif self.autoscaling_state == 'scaling_up':
-            # スケールアップ状態: サイズを大きくし、EC2に接近
+        elif self.autoscaling_state == 'scaling_out':
+            # スケールアウト状態: フリートに向かい、完了時に新しいEC2を起動する
+            # （サイズの一時的な拡大はスケーリング活動中であることの視覚表現）
             self.scale_factor = min(
-                self.scale_factor + self.AUTOSCALING_SCALE_STEP, self.AUTOSCALING_SCALE_UP_FACTOR)
+                self.scale_factor + self.AUTOSCALING_SCALE_STEP, self.AUTOSCALING_SCALE_OUT_FACTOR)
             self._apply_scale_factor()
 
-            # ターゲットのEC2に高速で接近（スケーリングの即応性を表現）
+            # 既存のEC2フリートに高速で接近（スケールアウトの即応性を表現）
             targets = [ec2 for ec2 in self.target_ec2s if ec2.health > 0]
             if targets:
                 target = targets[0]  # 生存している先頭のターゲットを追い続ける（毎フレームの再抽選によるぶれを防ぐ）
@@ -474,27 +483,27 @@ class AWSIcon(pygame.sprite.Sprite):
                 dy = target.rect.centery - self.rect.centery
                 distance = math.sqrt(dx*dx + dy*dy)
                 if distance > 0:
-                    speed = self.AUTOSCALING_SCALE_UP_SPEED
+                    speed = self.AUTOSCALING_SCALE_OUT_SPEED
                     self.velocity = [(dx / distance) * speed, (dy / distance) * speed]
 
             self._advance_scaling_timer()
 
-        elif self.autoscaling_state == 'scaling_down':
-            # スケールダウン状態: サイズを小さくし、EC2から離れる
+        elif self.autoscaling_state == 'scaling_in':
+            # スケールイン状態: 削減対象のEC2にゆっくり向かい、完了時にそのEC2を終了させる
+            # （サイズの一時的な縮小はスケーリング活動中であることの視覚表現）
             self.scale_factor = max(
-                self.scale_factor - self.AUTOSCALING_SCALE_STEP, self.AUTOSCALING_SCALE_DOWN_FACTOR)
+                self.scale_factor - self.AUTOSCALING_SCALE_STEP, self.AUTOSCALING_SCALE_IN_FACTOR)
             self._apply_scale_factor()
 
-            # ターゲットEC2の中心点から中速で離れる（スケールダウンの慎重さを表現）
+            # 削減対象のEC2に中速で接近（スケールインの慎重さを表現）
             targets = [ec2 for ec2 in self.target_ec2s if ec2.health > 0]
             if targets:
-                center_x = sum(icon.rect.centerx for icon in targets) / len(targets)
-                center_y = sum(icon.rect.centery for icon in targets) / len(targets)
-                dx = self.rect.centerx - center_x
-                dy = self.rect.centery - center_y
+                target = targets[0]
+                dx = target.rect.centerx - self.rect.centerx
+                dy = target.rect.centery - self.rect.centery
                 distance = math.sqrt(dx*dx + dy*dy)
                 if distance > 0:
-                    speed = self.AUTOSCALING_SCALE_DOWN_SPEED
+                    speed = self.AUTOSCALING_SCALE_IN_SPEED
                     self.velocity = [(dx / distance) * speed, (dy / distance) * speed]
 
             self._advance_scaling_timer()
@@ -506,6 +515,23 @@ class AWSIcon(pygame.sprite.Sprite):
         self.scale_duration = random.randint(
             self.AUTOSCALING_MIN_SCALE_DURATION, self.AUTOSCALING_MAX_SCALE_DURATION)
         self.target_ec2s = targets
+
+    def _complete_scaling(self):
+        """スケーリング動作の完了時に実際のスケールアウト/インを実行する"""
+        if self.autoscaling_state == 'scaling_out':
+            # 新しいEC2を自分の近くに起動する（ゲームエリア内に収める）
+            angle = random.uniform(0, 2 * math.pi)
+            spawn_x = self.rect.centerx + math.cos(angle) * self.AUTOSCALING_SPAWN_OFFSET
+            spawn_y = self.rect.centery + math.sin(angle) * self.AUTOSCALING_SPAWN_OFFSET
+            spawn_x = max(50, min(GAME_AREA_WIDTH - 50, spawn_x))
+            spawn_y = max(50, min(SCREEN_HEIGHT - 50, spawn_y))
+            self.spawn_requests.append(("EC2", (int(spawn_x), int(spawn_y))))
+        elif self.autoscaling_state == 'scaling_in':
+            # 削減対象のEC2を終了させる（healthを0にして削除フローに乗せる）
+            for ec2 in self.target_ec2s:
+                if ec2.health > 0:
+                    ec2.health = 0
+                    break
 
     def _apply_scale_factor(self):
         """scale_factorに応じてアイコン画像とrectを更新（中心位置は維持）"""
@@ -519,9 +545,10 @@ class AWSIcon(pygame.sprite.Sprite):
         self.rect.center = center
 
     def _advance_scaling_timer(self):
-        """スケーリング状態のタイマーを進め、終了したらモニタリング状態に戻す"""
+        """スケーリング状態のタイマーを進め、終了時にスケールアウト/インを実行してモニタリング状態に戻す"""
         self.state_timer += 1
         if self.state_timer >= self.scale_duration:
+            self._complete_scaling()
             self.autoscaling_state = 'monitoring'
             self.state_timer = 0
             self.target_ec2s = []

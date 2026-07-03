@@ -128,7 +128,15 @@ class Game:
             for icon in dead_icons:
                 if icon in self.all_icons:
                     self.all_icons.remove(icon)
-        
+
+        # AutoScalingのスケールアウトによるアイコン起動リクエストを処理
+        for icon in list(self.all_icons):
+            requests = getattr(icon, 'spawn_requests', None)
+            if requests:
+                for service_type, position in requests:
+                    self.all_icons.add(AWSIcon(service_type, position))
+                icon.spawn_requests = []
+
         # 進行状況の更新
         self.progress_system.check_achievements(self.all_icons)
         self.progress_system.update_notifications()
