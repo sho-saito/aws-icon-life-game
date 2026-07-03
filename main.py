@@ -11,6 +11,7 @@ from pygame.locals import *
 # 自作モジュールのインポート
 from constants import *
 from aws_icon import AWSIcon
+from evolution_system import EvolutionSystem
 from progress_system import ProgressSystem
 from ui_panel import UIPanel
 
@@ -46,6 +47,9 @@ class Game:
         
         # 進行システム
         self.progress_system = ProgressSystem()
+
+        # 進化システム
+        self.evolution_system = EvolutionSystem()
         
         # 初期アイコンの生成
         self._create_initial_icons()
@@ -146,7 +150,30 @@ class Game:
         
         # アイコン間の相互作用を処理
         self._handle_interactions()
-    
+
+        # アイコンの進化を処理
+        self._handle_evolutions()
+
+    def _handle_evolutions(self):
+        """アイコンの進化を処理"""
+        for evolution in self.evolution_system.update(self.all_icons):
+            # 進化元のアイコンを削除（選択中・操作中の場合は参照も解除）
+            for icon in evolution.icons:
+                if self.selected_icon is icon:
+                    self.selected_icon = None
+                if self.direct_control_icon is icon:
+                    self.direct_control_icon = None
+                self.all_icons.remove(icon)
+
+            # 進化後のアイコンを重心位置に生成
+            self.all_icons.add(
+                AWSIcon(evolution.target_type, evolution.position, evolution.velocity)
+            )
+            self.progress_system.add_notification(
+                f"Evolution: {len(evolution.icons)} {evolution.source_type} "
+                f"merged into {evolution.target_type}"
+            )
+
     def _handle_interactions(self):
         """アイコン間の相互作用を処理"""
         # すべてのアイコンペアをチェック
