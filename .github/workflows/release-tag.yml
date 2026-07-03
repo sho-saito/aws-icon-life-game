@@ -22,22 +22,36 @@ jobs:
           set -euo pipefail
 
           today=$(date +%Y-%m-%d)
-          git fetch --tags
-
-          last_seq=0
-          for tag in $(git tag -l "v${today}-*"); do
-            seq="${tag##*-}"
-            if [[ "$seq" =~ ^[0-9]+$ ]] && (( 10#$seq > last_seq )); then
-              last_seq=$((10#$seq))
-            fi
-          done
-
-          next_seq=$((last_seq + 1))
-          new_tag=$(printf "v%s-%02d" "$today" "$next_seq")
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$new_tag"
-          git push origin "$new_tag"
 
-          echo "Created tag: $new_tag"
+          max_attempts=5
+          attempt=0
+          while [ "$attempt" -lt "$max_attempts" ]; do
+            git fetch --tags --force
+
+            last_seq=0
+            for tag in $(git tag -l "v${today}-*"); do
+              seq="${tag##*-}"
+              if [[ "$seq" =~ ^[0-9]+$ ]] && (( 10#$seq > last_seq )); then
+                last_seq=$((10#$seq))
+              fi
+            done
+
+            next_seq=$((last_seq + 1))
+            new_tag=$(printf "v%s-%02d" "$today" "$next_seq")
+
+            git tag "$new_tag"
+            if git push origin "$new_tag"; then
+              echo "Created tag: $new_tag"
+              exit 0
+            fi
+
+            git tag -d "$new_tag"
+            attempt=$((attempt + 1))
+            echo "Tag $new_tag already exists or push failed, retrying ($attempt/$max_attempts)..."
+          done
+
+          echo "Failed to create tag after $max_attempts attempts"
+          exit 1
