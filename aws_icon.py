@@ -35,10 +35,6 @@ class AWSIcon(pygame.sprite.Sprite):
     AUTOSCALING_MAX_COOLDOWN_FRAMES = 300  # スケーリング後の最大クールダウン（5秒）
     AUTOSCALING_MIN_SCALE_DURATION = 90   # スケーリングの最小継続フレーム数（1.5秒）
     AUTOSCALING_MAX_SCALE_DURATION = 150  # スケーリングの最大継続フレーム数（2.5秒）
-    AUTOSCALING_SCALE_OUT_FACTOR = 1.5   # スケールアウト動作中の最大サイズ倍率（活動中の視覚表現）
-    AUTOSCALING_SCALE_IN_FACTOR = 0.7    # スケールイン動作中の最小サイズ倍率（活動中の視覚表現）
-    AUTOSCALING_SCALE_STEP = 0.01        # スケーリング中のサイズ変化量（1フレームあたり）
-    AUTOSCALING_SCALE_RECOVER_STEP = 0.005  # 通常サイズへ戻る際の変化量（1フレームあたり）
     AUTOSCALING_SCALE_OUT_EC2_THRESHOLD = 3  # EC2がこの数未満ならスケールアウト（EC2を追加）
     AUTOSCALING_SCALE_IN_EC2_THRESHOLD = 5   # EC2がこの数を超えたらスケールイン（EC2を削減）
     AUTOSCALING_SCALING_PROBABILITY = 0.02   # スケーリング状態へ移行する確率
@@ -62,8 +58,14 @@ class AWSIcon(pygame.sprite.Sprite):
             # 画像が見つからない場合は代替の四角形を使用
             self.image = pygame.Surface((50, 50))
             self.image.fill(ICON_COLORS.get(service_type, (200, 200, 200)))
-            font = pygame.font.SysFont(None, 20)
-            text = font.render(service_type, True, (0, 0, 0))
+            # サービス名がアイコンの幅に収まるようフォントサイズを調整する
+            font_size = 20
+            while True:
+                font = pygame.font.SysFont(None, font_size)
+                text = font.render(service_type, True, (0, 0, 0))
+                if text.get_width() <= 46 or font_size <= 10:
+                    break
+                font_size -= 1
             text_rect = text.get_rect(center=(25, 25))
             self.image.blit(text, text_rect)
         
@@ -124,8 +126,6 @@ class AWSIcon(pygame.sprite.Sprite):
             self.scale_cooldown = 0
             self.target_ec2s = []
             self.spawn_requests = []  # スケールアウトで起動するアイコンの (service_type, position) リスト
-            self.scale_factor = 1.0  # スケーリング係数（1.0が通常サイズ）
-            self.original_image = self.image.copy()  # 元の画像を保存
     
     def _set_dependencies(self):
         """サービスの依存関係を設定"""
@@ -460,21 +460,8 @@ class AWSIcon(pygame.sprite.Sprite):
             if self.scale_cooldown > 0:
                 self.scale_cooldown -= 1
 
-            # スケーリング終了後、徐々に通常サイズに戻す
-            if self.scale_factor != 1.0:
-                if self.scale_factor > 1.0:
-                    self.scale_factor = max(1.0, self.scale_factor - self.AUTOSCALING_SCALE_RECOVER_STEP)
-                else:
-                    self.scale_factor = min(1.0, self.scale_factor + self.AUTOSCALING_SCALE_RECOVER_STEP)
-                self._apply_scale_factor()
-
         elif self.autoscaling_state == 'scaling_out':
             # スケールアウト状態: フリートに向かい、完了時に新しいEC2を起動する
-            # （サイズの一時的な拡大はスケーリング活動中であることの視覚表現）
-            self.scale_factor = min(
-                self.scale_factor + self.AUTOSCALING_SCALE_STEP, self.AUTOSCALING_SCALE_OUT_FACTOR)
-            self._apply_scale_factor()
-
             # 既存のEC2フリートに高速で接近（スケールアウトの即応性を表現）
             targets = [ec2 for ec2 in self.target_ec2s if ec2.health > 0]
             if targets:
@@ -490,11 +477,6 @@ class AWSIcon(pygame.sprite.Sprite):
 
         elif self.autoscaling_state == 'scaling_in':
             # スケールイン状態: 削減対象のEC2にゆっくり向かい、完了時にそのEC2を終了させる
-            # （サイズの一時的な縮小はスケーリング活動中であることの視覚表現）
-            self.scale_factor = max(
-                self.scale_factor - self.AUTOSCALING_SCALE_STEP, self.AUTOSCALING_SCALE_IN_FACTOR)
-            self._apply_scale_factor()
-
             # 削減対象のEC2に中速で接近（スケールインの慎重さを表現）
             targets = [ec2 for ec2 in self.target_ec2s if ec2.health > 0]
             if targets:
@@ -532,17 +514,6 @@ class AWSIcon(pygame.sprite.Sprite):
                 if ec2.health > 0:
                     ec2.health = 0
                     break
-
-    def _apply_scale_factor(self):
-        """scale_factorに応じてアイコン画像とrectを更新（中心位置は維持）"""
-        base_width, base_height = self.original_image.get_size()
-        scaled_size = (int(base_width * self.scale_factor), int(base_height * self.scale_factor))
-        if scaled_size == self.image.get_size():
-            return  # ピクセルサイズが変わらない場合は再スケールしない
-        self.image = pygame.transform.scale(self.original_image, scaled_size)
-        center = self.rect.center
-        self.rect = self.image.get_rect()
-        self.rect.center = center
 
     def _advance_scaling_timer(self):
         """スケーリング状態のタイマーを進め、終了時にスケールアウト/インを実行してモニタリング状態に戻す"""
