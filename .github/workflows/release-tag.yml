@@ -1,0 +1,43 @@
+name: Auto Release Tag
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create incrementing date tag
+        run: |
+          set -euo pipefail
+
+          today=$(date +%Y-%m-%d)
+          git fetch --tags
+
+          last_seq=0
+          for tag in $(git tag -l "v${today}-*"); do
+            seq="${tag##*-}"
+            if [[ "$seq" =~ ^[0-9]+$ ]] && (( 10#$seq > last_seq )); then
+              last_seq=$((10#$seq))
+            fi
+          done
+
+          next_seq=$((last_seq + 1))
+          new_tag=$(printf "v%s-%02d" "$today" "$next_seq")
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$new_tag"
+          git push origin "$new_tag"
+
+          echo "Created tag: $new_tag"
