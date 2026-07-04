@@ -149,23 +149,25 @@ class TestEvolutionResult:
 
 
 class TestAutoScalingSpawnCost:
-    def test_spawning_ec2_reduces_own_health(self):
-        """EC2をスポーンするとAutoScaling自身の体力が消費される"""
+    def test_spawning_ec2_consumes_ratio_of_current_health(self):
+        """EC2をスポーンするとその時点の残存体力の10%が消費される"""
         autoscaling = make_icon("AutoScaling", (400, 300))
         autoscaling.autoscaling_state = 'scaling_out'
-        before = autoscaling.health
+        autoscaling.health = 80
+        expected = 80 * (1 - autoscaling.AUTOSCALING_SPAWN_HEALTH_COST_RATIO)
 
         autoscaling._complete_scaling()
 
         assert autoscaling.spawn_requests[0][0] == "EC2"
-        assert autoscaling.health == before - autoscaling.AUTOSCALING_SPAWN_HEALTH_COST
+        assert autoscaling.health == pytest.approx(expected)
 
-    def test_health_never_goes_below_zero_on_spawn(self):
-        """体力が消費コスト未満でもマイナスにはならない"""
-        autoscaling = make_icon("AutoScaling", (400, 300))
-        autoscaling.autoscaling_state = 'scaling_out'
-        autoscaling.health = autoscaling.AUTOSCALING_SPAWN_HEALTH_COST - 5
+    def test_spawn_cost_scales_with_remaining_health(self):
+        """残存体力が少ないほど消費量（絶対値）も小さくなる"""
+        low = make_icon("AutoScaling", (400, 300))
+        low.autoscaling_state = 'scaling_out'
+        low.health = 10
 
-        autoscaling._complete_scaling()
+        low._complete_scaling()
 
-        assert autoscaling.health == 0
+        assert low.health == pytest.approx(9)
+        assert low.health >= 0

@@ -41,7 +41,7 @@ class AWSIcon(pygame.sprite.Sprite):
     AUTOSCALING_EXCESS_DRAIN = 0.5      # 近傍EC2がDesired超過のとき、超過分のEC2から急激に減らす体力（1フレームあたり）
     AUTOSCALING_SCALE_OUT_SPEED = 3.0   # スケールアウト時の移動速度（即応性を表現）
     AUTOSCALING_SPAWN_OFFSET = 60       # スケールアウトで起動するEC2の配置距離（ピクセル）
-    AUTOSCALING_SPAWN_HEALTH_COST = 20  # EC2を1体スポーンするごとに消費する自身の体力（増殖の連鎖を抑制）
+    AUTOSCALING_SPAWN_HEALTH_COST_RATIO = 0.1  # EC2を1体スポーンするごとに消費する体力の割合（その時点の残存体力の10%、増殖の連鎖を抑制）
     AUTOSCALING_SEPARATION_RADIUS = 220  # AutoScaling同士が反発し始める距離（ピクセル）
     AUTOSCALING_SEPARATION_FORCE = 0.3   # AutoScaling同士の反発力の最大値（近いほど強い）
 
@@ -527,9 +527,9 @@ class AWSIcon(pygame.sprite.Sprite):
             spawn_x = max(50, min(GAME_AREA_WIDTH - 50, spawn_x))
             spawn_y = max(50, min(SCREEN_HEIGHT - 50, spawn_y))
             self.spawn_requests.append(("EC2", (int(spawn_x), int(spawn_y))))
-            # EC2を生み出すコストとして自身の体力を消費する。
+            # EC2を生み出すコストとして、その時点の残存体力の一定割合を消費する。
             # これによりEC2⇔AutoScalingの無限増殖ループを防ぎ、ゲームバランスを保つ
-            self.health = max(0, self.health - self.AUTOSCALING_SPAWN_HEALTH_COST)
+            self.health = max(0, self.health - self.health * self.AUTOSCALING_SPAWN_HEALTH_COST_RATIO)
 
     def _advance_scaling_timer(self):
         """スケーリング状態のタイマーを進め、終了時にスケールアウト/インを実行してモニタリング状態に戻す"""
