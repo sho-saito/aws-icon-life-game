@@ -145,6 +145,7 @@ class AWSIcon(pygame.sprite.Sprite):
         # AutoScalingの状態管理
         if self.service_type == "AutoScaling":
             self.autoscaling_state = 'monitoring'  # 'monitoring', 'scaling_out'
+            self.scaling_in = False  # このフレームで超過EC2を削減（スケールイン）中か
             self.state_timer = 0
             self.scale_duration = 0
             self.scale_cooldown = 0
@@ -510,6 +511,8 @@ class AWSIcon(pygame.sprite.Sprite):
 
     def _autoscaling_behavior(self, all_icons):
         """AutoScalingの動作を実装"""
+        # スケールイン（超過EC2の削減）は毎フレーム判定するため、まずリセットする
+        self.scaling_in = False
         if self.autoscaling_state == 'monitoring':
             # モニタリング状態: EC2の集団を監視するような動き
 
@@ -537,7 +540,8 @@ class AWSIcon(pygame.sprite.Sprite):
                             and random.random() < self.AUTOSCALING_SCALE_OUT_PROBABILITY):
                         self._start_scaling('scaling_out', nearby_ec2s[:2])
                 elif len(nearby_ec2s) > self.desired_count:
-                    # 超過: 超過分のEC2（体力が低い順）のライフを急激に減らす
+                    # 超過: 超過分のEC2（体力が低い順）のライフを急激に減らす（スケールイン）
+                    self.scaling_in = True
                     excess = len(nearby_ec2s) - self.desired_count
                     for ec2 in sorted(nearby_ec2s, key=lambda e: e.health)[:excess]:
                         ec2.health = max(0, ec2.health - self.AUTOSCALING_EXCESS_DRAIN)
@@ -653,10 +657,6 @@ class AWSIcon(pygame.sprite.Sprite):
             "connect": ("Connecting", (255, 140, 0)),  # リクエスト転送: オレンジ
             "return": ("Returning", (0, 220, 120)),    # レスポンス返送: 緑
         }),
-        "AutoScaling": ("autoscaling_state", {
-            "monitoring": None,
-            "scaling_out": ("Scaling out", (255, 140, 0)),  # スケールアウト: オレンジ
-        }),
     }
 
     def _current_state_indicator(self):
@@ -664,6 +664,14 @@ class AWSIcon(pygame.sprite.Sprite):
         # リタイア（retirement）は最優先で赤枠
         if self.retiring:
             return ("Retiring", (255, 0, 0))
+        # AutoScalingはスケールアウト/スケールインを個別に表現する
+        # （スケールインはmonitoring中の超過削減で発生するフラグ）
+        if self.service_type == "AutoScaling":
+            if self.autoscaling_state == "scaling_out":
+                return ("Scaling out", (255, 140, 0))  # スケールアウト: オレンジ
+            if getattr(self, "scaling_in", False):
+                return ("Scaling in", (160, 90, 220))  # スケールイン: 紫
+            return None
         config = self.STATE_INDICATORS.get(self.service_type)
         if config:
             attr_name, mapping = config

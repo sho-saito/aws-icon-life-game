@@ -49,6 +49,40 @@ class TestStateIndicator:
         assert asg.state_label() is None
         assert asg.state_border_color() is None  # 基本状態は枠なし
 
+    def test_autoscaling_scaling_in(self):
+        asg = make_icon("AutoScaling")
+        asg.autoscaling_state = "monitoring"
+        asg.scaling_in = True
+        assert asg.state_label() == "Scaling in"
+        assert asg.state_border_color() == (160, 90, 220)  # 紫
+
+    def test_autoscaling_scaling_out_takes_priority_over_scaling_in(self):
+        asg = make_icon("AutoScaling")
+        asg.autoscaling_state = "scaling_out"
+        asg.scaling_in = True
+        assert asg.state_label() == "Scaling out"
+
+    def test_scaling_in_flag_set_when_excess_ec2_nearby(self):
+        """監視範囲内の生存EC2がDesiredCountを超えるとスケールインになる"""
+        asg = make_icon("AutoScaling")
+        asg.desired_count = 1
+        asg.autoscaling_state = "monitoring"
+        ec2s = [make_icon("EC2") for _ in range(3)]
+        for e in ec2s:
+            e.rect.center = asg.rect.center  # 監視範囲内に配置
+        asg._autoscaling_behavior([asg] + ec2s)
+        assert asg.scaling_in is True
+        assert asg.state_label() == "Scaling in"
+
+    def test_scaling_in_flag_cleared_when_no_excess(self):
+        """超過が無い（EC2が居ない）フレームではスケールインフラグは下がる"""
+        asg = make_icon("AutoScaling")
+        asg.desired_count = 3
+        asg.autoscaling_state = "monitoring"
+        asg.scaling_in = True  # 前フレームの残り
+        asg._autoscaling_behavior([asg])
+        assert asg.scaling_in is False
+
     def test_retiring_takes_priority_with_red_border(self):
         ec2 = make_icon("EC2")
         ec2.retiring = True
