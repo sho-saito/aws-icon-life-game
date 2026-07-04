@@ -163,6 +163,14 @@ class Game:
             icon.update(self.all_icons)
             if icon.health <= 0:
                 dead_icons.add(icon)
+            # EC2リタイア発動時に通知を出す（発動した瞬間のみ）
+            if getattr(icon, 'retiring', False) and not icon.retirement_announced:
+                icon.retirement_announced = True
+                self.progress_system.add_notification(
+                    f"Instance retirement scheduled: your EC2 instance "
+                    f"{icon.instance_id} is scheduled for retirement due to "
+                    f"degradation of the underlying hardware."
+                )
         
         # 削除対象のアイコンを処理
         if dead_icons:
