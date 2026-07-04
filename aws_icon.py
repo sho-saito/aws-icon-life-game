@@ -5,7 +5,10 @@ import pygame
 import os
 import random
 import math
-from constants import GAME_AREA_WIDTH, SCREEN_HEIGHT, ICON_COLORS
+from constants import (
+    GAME_AREA_WIDTH, SCREEN_HEIGHT, ICON_COLORS,
+    AWS_PARTITION, AWS_REGION, AWS_ACCOUNT_ID,
+)
 
 class AWSIcon(pygame.sprite.Sprite):
     """AWSサービスアイコンを表すクラス"""
@@ -130,13 +133,14 @@ class AWSIcon(pygame.sprite.Sprite):
         self.evolution_timer = 0       # 進化条件を満たしている継続フレーム数
         self.evolution_progress = 0.0  # 進化までの進行度（0.0〜1.0）
 
+        # 生成時にARNを採番する（クリック時のステータス表示やEC2リタイア通知で使用）
+        self.instance_id = None  # EC2のみ設定される（i-＋17桁hex）
+        self.arn = self._generate_arn()
+
         # EC2インスタンスのリタイア（retirement）表現用
         self.age_frames = 0                # 生成からの経過フレーム数
         self.retiring = False              # リタイア中フラグ
         self.retirement_announced = False  # リタイア通知済みフラグ（main側が参照して通知）
-        if self.service_type == "EC2":
-            # リタイア通知で表示するインスタンスID（AWSのi-＋17桁hex形式を模倣）
-            self.instance_id = f"i-{random.randint(0, 16 ** 17 - 1):017x}"
 
         # AutoScalingの状態管理
         if self.service_type == "AutoScaling":
@@ -154,6 +158,62 @@ class AWSIcon(pygame.sprite.Sprite):
             self.desired_label = label_font.render(
                 f"Desired = {self.desired_count}", True, (50, 50, 50))
     
+    def _generate_arn(self):
+        """サービスの種類に応じて、AWSの規則に沿ったARNを採番する
+
+        参考: Amazon Resource Names (ARNs)
+        arn:partition:service:region:account-id:resource-type/resource-id
+        - EC2/EBS/VPCはec2ネームスペース配下でリソースIDが「i-」「vol-」「vpc-」＋17桁hex
+        - S3バケットはグローバル一意名でregion/accountを含まない
+        - IAM/CloudFrontはグローバルサービスのためregionが空
+        """
+        p, region, account = AWS_PARTITION, AWS_REGION, AWS_ACCOUNT_ID
+
+        def hex_id(prefix, digits=17):
+            return f"{prefix}{random.randint(0, 16 ** digits - 1):0{digits}x}"
+
+        def name(prefix, digits=8):
+            return f"{prefix}{random.randint(0, 16 ** digits - 1):0{digits}x}"
+
+        st = self.service_type
+        if st == "EC2":
+            self.instance_id = hex_id("i-")
+            return f"arn:{p}:ec2:{region}:{account}:instance/{self.instance_id}"
+        elif st == "VPC":
+            return f"arn:{p}:ec2:{region}:{account}:vpc/{hex_id('vpc-')}"
+        elif st == "EBS":
+            return f"arn:{p}:ec2:{region}:{account}:volume/{hex_id('vol-')}"
+        elif st == "S3":
+            # S3バケットはグローバル一意なDNS互換名。region/accountは含まない
+            return f"arn:{p}:s3:::{name('my-bucket-')}"
+        elif st == "Lambda":
+            return f"arn:{p}:lambda:{region}:{account}:function:{name('function-')}"
+        elif st == "RDS":
+            return f"arn:{p}:rds:{region}:{account}:db:{name('database-')}"
+        elif st == "IAM":
+            # IAMはグローバルサービスのためregionは空
+            return f"arn:{p}:iam::{account}:role/{name('role-')}"
+        elif st == "DynamoDB":
+            return f"arn:{p}:dynamodb:{region}:{account}:table/{name('table-')}"
+        elif st == "API Gateway":
+            # REST APIのIDは10桁の英数字。ARNにaccountは含まない
+            api_id = "".join(random.choice("abcdefghijklmnopqrstuvwxyz0123456789")
+                             for _ in range(10))
+            return f"arn:{p}:apigateway:{region}::/restapis/{api_id}"
+        elif st == "CloudFront":
+            # CloudFrontはグローバル。ディストリビューションIDはE＋13桁の英数字大文字
+            dist_id = "E" + "".join(
+                random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+                for _ in range(13))
+            return f"arn:{p}:cloudfront::{account}:distribution/{dist_id}"
+        elif st == "AutoScaling":
+            h = f"{random.randint(0, 16 ** 32 - 1):032x}"
+            group_uuid = f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+            return (f"arn:{p}:autoscaling:{region}:{account}:autoScalingGroup:"
+                    f"{group_uuid}:autoScalingGroupName/{name('asg-')}")
+        # 未知のサービスは汎用形式でフォールバック
+        return f"arn:{p}:{st.lower()}:{region}:{account}:resource/{name('res-')}"
+
     def _set_dependencies(self):
         """サービスの依存関係を設定"""
         if self.service_type == "EC2":
