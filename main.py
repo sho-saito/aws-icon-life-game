@@ -268,7 +268,7 @@ class Game:
                     # 依存関係の処理
                     if icon2.service_type in icon1.dependencies:
                         # 依存関係が満たされた場合、体力回復を加速
-                        icon1.health = min(icon1.max_health, icon1.health + 5)
+                        icon1.recover(5)
                     
                     # 補完関係の処理
                     self._handle_complementary_relations(icon1, icon2)
@@ -337,8 +337,8 @@ class Game:
             icon1.velocity = [v * self.VELOCITY_SLOWDOWN_FACTOR for v in icon1.velocity]
             icon2.velocity = [v * self.VELOCITY_SLOWDOWN_FACTOR for v in icon2.velocity]
             # 体力を少し回復（過度な回復を防ぐ）
-            icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
-            icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
+            icon1.recover(self.HEALTH_RECOVERY_AMOUNT)
+            icon2.recover(self.HEALTH_RECOVERY_AMOUNT)
             
             # EC2とEBSが近くにいる場合、EBSはEC2に追従する傾向を強める
             if icon1.service_type == "EC2" and icon2.service_type == "EBS":
@@ -361,8 +361,8 @@ class Game:
             icon1.velocity = self._cap_velocity(icon1.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
             icon2.velocity = self._cap_velocity(icon2.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
             # 体力を少し回復（過度な回復を防ぐ）
-            icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
-            icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
+            icon1.recover(self.HEALTH_RECOVERY_AMOUNT)
+            icon2.recover(self.HEALTH_RECOVERY_AMOUNT)
 
         # S3とCloudFrontの補完関係
         if (icon1.service_type == "S3" and icon2.service_type == "CloudFront") or \
@@ -371,8 +371,8 @@ class Game:
             icon1.velocity = self._cap_velocity(icon1.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
             icon2.velocity = self._cap_velocity(icon2.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
             # 体力を少し回復（過度な回復を防ぐ）
-            icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
-            icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
+            icon1.recover(self.HEALTH_RECOVERY_AMOUNT)
+            icon2.recover(self.HEALTH_RECOVERY_AMOUNT)
 
             # CloudFrontの場合は追加で速度を上げる（配信の高速化を表現）
             cloudfront_boost_factor = 1.2

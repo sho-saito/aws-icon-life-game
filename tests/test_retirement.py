@@ -103,6 +103,33 @@ class TestEC2Retirement:
         assert message.startswith(expected_prefix)
         assert message.endswith(" UTC.")
 
+    def test_retiring_icon_does_not_recover(self):
+        """リタイア予定のアイコンはrecoverを呼ばれても回復しない"""
+        ec2 = make_icon("EC2", (100, 100))
+        ec2.health = 40
+        ec2.retiring = True
+
+        ec2.recover(50)
+
+        assert ec2.health == 40
+
+    def test_non_retiring_icon_recovers(self):
+        """リタイアしていないアイコンは通常どおり回復する"""
+        ec2 = make_icon("EC2", (100, 100))
+        ec2.health = 40
+
+        ec2.recover(10)
+
+        assert ec2.health == 50
+
+    def test_recover_does_not_exceed_max_health(self):
+        ec2 = make_icon("EC2", (100, 100))
+        ec2.health = ec2.max_health - 2
+
+        ec2.recover(10)
+
+        assert ec2.health == ec2.max_health
+
     def test_non_ec2_icons_never_retire(self):
         vpc = make_icon("VPC", (100, 100))
         vpc.age_frames = 100000

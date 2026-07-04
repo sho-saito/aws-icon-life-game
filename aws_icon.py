@@ -294,7 +294,7 @@ class AWSIcon(pygame.sprite.Sprite):
                     self.health = max(0, self.health - self.DEPENDENCY_HEALTH_DECREASE)
             elif self.health < self.max_health and self.service_type != "AutoScaling":
                 # AutoScalingは依存関係（EC2近接）による体力回復を行わない
-                self.health = min(self.max_health, self.health + self.DEPENDENCY_HEALTH_RECOVERY)
+                self.recover(self.DEPENDENCY_HEALTH_RECOVERY)
         
         # 相互作用タイマーの更新
         if self.interaction_timer > 0:
@@ -341,7 +341,7 @@ class AWSIcon(pygame.sprite.Sprite):
                     and self.health < self.max_health):
                 # 動きの速さに応じて回復量を調整（最大0.05/フレーム）
                 recovery_amount = min(0.05, distance_moved * 0.01)
-                self.health = min(self.max_health, self.health + recovery_amount)
+                self.recover(recovery_amount)
         
         # 停滞時間が長すぎる場合はHealthを減少
         if self.stationary_frames > self.max_stationary_frames:
@@ -447,7 +447,7 @@ class AWSIcon(pygame.sprite.Sprite):
             vpc_count = sum(1 for icon in all_icons if icon.service_type == "VPC")
             if vpc_count <= 5:
                 recovery_rate = 0.2  # 通常の回復速度より高い
-                self.health = min(self.max_health, self.health + recovery_rate)
+                self.recover(recovery_rate)
 
     def _autoscaling_behavior(self, all_icons):
         """AutoScalingの動作を実装"""
@@ -559,6 +559,12 @@ class AWSIcon(pygame.sprite.Sprite):
             self.target_ec2s = []
             self.scale_cooldown = random.randint(
                 self.AUTOSCALING_MIN_COOLDOWN_FRAMES, self.AUTOSCALING_MAX_COOLDOWN_FRAMES)  # クールダウン開始
+
+    def recover(self, amount):
+        """体力を回復する。リタイア（retirement）予定のアイコンは一切回復しない"""
+        if self.retiring:
+            return
+        self.health = min(self.max_health, self.health + amount)
 
     def _update_retirement(self):
         """EC2インスタンスのリタイア（retirement）を処理する
