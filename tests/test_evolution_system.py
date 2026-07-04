@@ -146,3 +146,26 @@ class TestEvolutionResult:
         assert len(evolutions) == 2
         evolved_ids = [id(icon) for e in evolutions for icon in e.icons]
         assert len(set(evolved_ids)) == 6
+
+
+class TestAutoScalingSpawnCost:
+    def test_spawning_ec2_reduces_own_health(self):
+        """EC2をスポーンするとAutoScaling自身の体力が消費される"""
+        autoscaling = make_icon("AutoScaling", (400, 300))
+        autoscaling.autoscaling_state = 'scaling_out'
+        before = autoscaling.health
+
+        autoscaling._complete_scaling()
+
+        assert autoscaling.spawn_requests[0][0] == "EC2"
+        assert autoscaling.health == before - autoscaling.AUTOSCALING_SPAWN_HEALTH_COST
+
+    def test_health_never_goes_below_zero_on_spawn(self):
+        """体力が消費コスト未満でもマイナスにはならない"""
+        autoscaling = make_icon("AutoScaling", (400, 300))
+        autoscaling.autoscaling_state = 'scaling_out'
+        autoscaling.health = autoscaling.AUTOSCALING_SPAWN_HEALTH_COST - 5
+
+        autoscaling._complete_scaling()
+
+        assert autoscaling.health == 0
