@@ -18,6 +18,21 @@ from ui_panel import UIPanel
 class Game:
     """ゲームのメインクラス"""
     
+    # キーボードのアルファベットと生成するサービスの対応
+    # （EBSはEがEC2と重複するため頭文字ではなくBlock storeのBを割り当て）
+    KEY_TO_SERVICE = {
+        K_e: "EC2",
+        K_s: "S3",
+        K_v: "VPC",
+        K_l: "Lambda",
+        K_b: "EBS",
+        K_r: "RDS",
+        K_i: "IAM",
+        K_d: "DynamoDB",
+        K_a: "API Gateway",
+        K_c: "CloudFront",
+    }
+
     # 相互作用に関する定数
     VELOCITY_SLOWDOWN_FACTOR = 0.9
     VELOCITY_INCREASE_FACTOR = 1.1
@@ -58,6 +73,15 @@ class Game:
         """初期アイコンを生成"""
         # 起動時には何もアイコンを配置しない
         pass
+
+    def _spawn_icon(self, service, position=None):
+        """指定サービスのアイコンを生成して追加する（位置未指定ならランダム配置）"""
+        if position is None:
+            position = (random.randint(50, GAME_AREA_WIDTH - 50),
+                        random.randint(50, SCREEN_HEIGHT - 50))
+        icon = AWSIcon(service, position)
+        self.all_icons.add(icon)
+        return icon
     
     def handle_events(self):
         """イベント処理"""
@@ -69,11 +93,11 @@ class Game:
                     self.running = False
                 elif event.key == K_SPACE:
                     # スペースキーで新しいランダムなアイコンを追加
-                    service = random.choice(AWS_ICONS)
-                    position = (random.randint(50, GAME_AREA_WIDTH - 50), 
-                                random.randint(50, SCREEN_HEIGHT - 50))
-                    icon = AWSIcon(service, position)
-                    self.all_icons.add(icon)
+                    self._spawn_icon(random.choice(AWS_ICONS))
+                elif event.key in self.KEY_TO_SERVICE and not (event.mod & KMOD_SHIFT):
+                    # アルファベットキーで対応するサービスのアイコンを生成
+                    # （ShiftはShift+Aの実績オーバーレイ用に予約し、生成はしない）
+                    self._spawn_icon(self.KEY_TO_SERVICE[event.key])
             elif event.type == MOUSEBUTTONDOWN:
                 # UIパネル外（ゲームエリア内）のみ処理
                 if event.pos[0] < GAME_AREA_WIDTH:
@@ -81,9 +105,7 @@ class Game:
                         # アイコンがあればドラッグ操作を開始、なければ新しいアイコンを配置
                         if not self._start_drag_control(event.pos):
                             # クリック位置にアイコンがなければ新しいアイコンを追加
-                            service = random.choice(AWS_ICONS)
-                            icon = AWSIcon(service, event.pos)
-                            self.all_icons.add(icon)
+                            self._spawn_icon(random.choice(AWS_ICONS), event.pos)
             elif event.type == MOUSEBUTTONUP:
                 if event.button == 1:  # 左クリックリリース
                     # ドラッグ操作の終了
@@ -169,9 +191,9 @@ class Game:
             self.all_icons.add(
                 AWSIcon(evolution.target_type, evolution.position, evolution.velocity)
             )
-            self.progress_system.add_notification(
-                f"Evolution: {len(evolution.icons)} {evolution.source_type} "
-                f"merged into {evolution.target_type}"
+            # 進化発動を実績として記録（通知＋Shift+Aオーバーレイに反映）
+            self.progress_system.record_evolution(
+                evolution.source_type, evolution.target_type
             )
 
     def _handle_interactions(self):
@@ -326,7 +348,12 @@ class Game:
         
         # UIパネルの描画
         self.ui_panel.draw(self.screen)
-        
+
+        # Shift+A押下中は全実績の状況を最前面にオーバーレイ表示
+        keys = pygame.key.get_pressed()
+        if keys[K_a] and (keys[K_LSHIFT] or keys[K_RSHIFT]):
+            self.progress_system.draw_overlay(self.screen)
+
         pygame.display.flip()
     
     def run(self):

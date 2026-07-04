@@ -99,7 +99,8 @@ class TestAchievementRates:
     def test_initial_rates_are_zero(self, progress):
         assert progress.get_dependency_achievement_rate() == (0, 6)
         assert progress.get_complementary_achievement_rate() == (0, 3)
-        assert progress.get_total_achievement_rate() == (0, 9)
+        assert progress.get_evolution_achievement_rate() == (0, 1)
+        assert progress.get_total_achievement_rate() == (0, 10)
 
     def test_rates_count_achieved_items(self, progress):
         progress.dependency_achievements["EC2-VPC"]["achieved"] = True
@@ -107,4 +108,38 @@ class TestAchievementRates:
 
         assert progress.get_dependency_achievement_rate() == (1, 6)
         assert progress.get_complementary_achievement_rate() == (1, 3)
-        assert progress.get_total_achievement_rate() == (2, 9)
+        assert progress.get_total_achievement_rate() == (2, 10)
+
+
+class TestEvolutionAchievements:
+    def test_record_evolution_marks_achieved_and_notifies(self, progress):
+        progress.record_evolution("EC2", "AutoScaling")
+
+        assert progress.evolution_achievements["EC2-AutoScaling"]["achieved"] is True
+        assert progress.get_evolution_achievement_rate() == (1, 1)
+        assert any("Evolution Achieved" in msg for msg in progress.notifications)
+
+    def test_record_evolution_notifies_only_once(self, progress):
+        progress.record_evolution("EC2", "AutoScaling")
+        first_count = len(progress.notifications)
+        progress.record_evolution("EC2", "AutoScaling")
+
+        assert len(progress.notifications) == first_count
+
+    def test_unknown_evolution_rule_is_registered_dynamically(self, progress):
+        progress.record_evolution("Lambda", "StepFunctions")
+
+        assert progress.evolution_achievements["Lambda-StepFunctions"]["achieved"] is True
+
+    def test_evolution_achievements_derived_from_rules(self, progress):
+        """進化ルールを追加すれば自動的に実績表示の対象になる"""
+        from evolution_system import EvolutionSystem
+
+        expected_keys = {
+            f"{source}-{target}"
+            for source, target in EvolutionSystem.EVOLUTION_RULES.items()
+        }
+        assert expected_keys <= set(progress.evolution_achievements)
+        # 初期状態ではすべて未達成として一覧に載る
+        for key in expected_keys:
+            assert progress.evolution_achievements[key]["achieved"] is False

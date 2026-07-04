@@ -3,6 +3,8 @@
 
 import pygame
 
+from evolution_system import EvolutionSystem
+
 class ProgressSystem:
     """ゲームの進行状況を管理するクラス"""
     
@@ -22,6 +24,18 @@ class ProgressSystem:
             "EC2-EBS": {"achieved": False, "description": "EC2 and EBS integration"},
             "Lambda-DynamoDB": {"achieved": False, "description": "Lambda and DynamoDB integration"},
             "S3-CloudFront": {"achieved": False, "description": "S3 and CloudFront integration"}
+        }
+
+        # 進化の達成状況（同種アイコンの合体による進化発動）
+        # EvolutionSystemの進化ルールから自動生成するため、
+        # 進化パターンを追加すれば自動的に実績表示の対象になる
+        group_size = EvolutionSystem.GROUP_SIZE
+        self.evolution_achievements = {
+            f"{source}-{target}": {
+                "achieved": False,
+                "description": f"{source} x{group_size} evolved into {target}",
+            }
+            for source, target in EvolutionSystem.EVOLUTION_RULES.items()
         }
         
         # 通知メッセージのキュー
@@ -106,6 +120,21 @@ class ProgressSystem:
                             self.add_notification(f"Complementary Relation: {description}")
                         return
     
+    def record_evolution(self, source_type, target_type):
+        """進化の発動を実績として記録し、未達成なら通知する"""
+        key = f"{source_type}-{target_type}"
+        achievement = self.evolution_achievements.get(key)
+        if achievement is None:
+            # 未定義の進化ルールにも対応できるよう動的に登録する
+            achievement = {
+                "achieved": False,
+                "description": f"{source_type} evolved into {target_type}"
+            }
+            self.evolution_achievements[key] = achievement
+        if not achievement["achieved"]:
+            achievement["achieved"] = True
+            self.add_notification(f"Evolution Achieved: {achievement['description']}")
+
     def add_notification(self, message):
         """通知メッセージを追加"""
         # 絵文字を使わないようにする
@@ -140,39 +169,83 @@ class ProgressSystem:
         total = len(self.complementary_achievements)
         return achieved, total
     
+    def get_evolution_achievement_rate(self):
+        """進化の達成率を計算"""
+        achieved = sum(1 for item in self.evolution_achievements.values() if item["achieved"])
+        total = len(self.evolution_achievements)
+        return achieved, total
+
     def get_total_achievement_rate(self):
         """全体の達成率を計算"""
         dep_achieved, dep_total = self.get_dependency_achievement_rate()
         comp_achieved, comp_total = self.get_complementary_achievement_rate()
-        return dep_achieved + comp_achieved, dep_total + comp_total
+        evo_achieved, evo_total = self.get_evolution_achievement_rate()
+        return (dep_achieved + comp_achieved + evo_achieved,
+                dep_total + comp_total + evo_total)
     
     def draw(self, surface, font):
         """進行状況と通知を描画"""
-        # 達成率の表示
-        dep_achieved, dep_total = self.get_dependency_achievement_rate()
-        comp_achieved, comp_total = self.get_complementary_achievement_rate()
-        total_achieved, total_total = self.get_total_achievement_rate()
-        
-        # 達成率テキスト
-        achievement_text = f"Achievements: {total_achieved}/{total_total}"
-        dep_text = f"Dependencies: {dep_achieved}/{dep_total}"
-        comp_text = f"Complementary Relations: {comp_achieved}/{comp_total}"
-        
-        # テキスト描画
-        text_color = (50, 50, 50)
-        achievement_surface = font.render(achievement_text, True, text_color)
-        dep_surface = font.render(dep_text, True, text_color)
-        comp_surface = font.render(comp_text, True, text_color)
-        
-        # 位置調整（画面左上）
-        margin = 10
-        surface.blit(achievement_surface, (margin, margin))
-        surface.blit(dep_surface, (margin, margin + 25))
-        surface.blit(comp_surface, (margin, margin + 50))
-        
+        # 達成率の件数表示は画面左上には出さず、実績オーバーレイ（Shift+A）で確認する
         # 通知の表示
         self._draw_notifications(surface, font)
     
+    def draw_overlay(self, surface):
+        """全実績の達成状況を最前面の半透明オーバーレイとして表示する（Shift+A押下中）
+
+        下でアイコンたちが活動している様子が透けて見えるように、
+        半透明の暗幕の上に各実績の達成/未達成を一覧表示する。
+        """
+        from constants import SCREEN_WIDTH, SCREEN_HEIGHT
+
+        # 半透明の暗幕（アルファ付きSurfaceで下のアイコンを透過させる）
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+
+        title_font = pygame.font.SysFont(None, 48)
+        heading_font = pygame.font.SysFont(None, 32)
+        item_font = pygame.font.SysFont(None, 28)
+
+        achieved_color = (80, 220, 120)   # 達成: 緑
+        pending_color = (160, 160, 160)   # 未達成: グレー
+        white = (240, 240, 240)
+
+        margin_x = 60
+        y = 40
+
+        # タイトル（全体の達成率）
+        total_achieved, total_total = self.get_total_achievement_rate()
+        title_surface = title_font.render(
+            f"Achievements  {total_achieved} / {total_total}", True, white)
+        overlay.blit(title_surface, (margin_x, y))
+        y += 70
+
+        # 依存関係・補完関係の各セクションを一覧表示
+        sections = [
+            ("Dependencies", self.dependency_achievements,
+             self.get_dependency_achievement_rate()),
+            ("Complementary Relations", self.complementary_achievements,
+             self.get_complementary_achievement_rate()),
+            ("Evolutions", self.evolution_achievements,
+             self.get_evolution_achievement_rate()),
+        ]
+        for heading, achievements, (sec_achieved, sec_total) in sections:
+            heading_surface = heading_font.render(
+                f"{heading}  {sec_achieved} / {sec_total}", True, white)
+            overlay.blit(heading_surface, (margin_x, y))
+            y += 42
+
+            for item in achievements.values():
+                achieved = item["achieved"]
+                marker = "[x]" if achieved else "[ ]"
+                color = achieved_color if achieved else pending_color
+                line_surface = item_font.render(
+                    f"{marker}  {item['description']}", True, color)
+                overlay.blit(line_surface, (margin_x + 24, y))
+                y += 32
+            y += 24
+
+        surface.blit(overlay, (0, 0))
+
     def _draw_notifications(self, surface, font):
         """通知メッセージを描画"""
         if not self.notifications:
