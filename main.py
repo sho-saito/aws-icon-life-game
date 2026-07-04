@@ -44,8 +44,8 @@ class Game:
         "operation: The maximum number of VPCs has been reached."
     )
 
-    # EC2インスタンスのリタイア通知に使うリージョン（AWS公式メッセージの再現用）
-    EC2_RETIREMENT_REGION = "us-east-1"
+    # EC2インスタンスのリタイア通知に使うリージョン（ARNの採番と同じ値を使う）
+    EC2_RETIREMENT_REGION = AWS_REGION
 
     # 相互作用に関する定数
     VELOCITY_SLOWDOWN_FACTOR = 0.9
@@ -80,8 +80,8 @@ class Game:
         # 進化システム
         self.evolution_system = EvolutionSystem()
 
-        # EC2リタイア通知に使うAWSアカウントID（12桁、公式メッセージの再現用）
-        self.aws_account_id = f"{random.randint(0, 10 ** 12 - 1):012d}"
+        # EC2リタイア通知に使うAWSアカウントID（ARNの採番と同じ値を使う）
+        self.aws_account_id = AWS_ACCOUNT_ID
         
         # 初期アイコンの生成
         self._create_initial_icons()

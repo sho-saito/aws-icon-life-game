@@ -17,6 +17,11 @@ UI_BORDER_COLOR = (200, 200, 200)
 # AutoScalingはランダム配置では出現せず、EC2の進化によってのみ発生する
 AWS_ICONS = ["EC2", "S3", "VPC", "Lambda", "EBS", "RDS", "IAM", "DynamoDB", "API Gateway", "CloudFront"]
 
+# ARN採番に使う共通の値（アカウント内で固定。ARNのregion/account部分に使用）
+AWS_PARTITION = "aws"
+AWS_REGION = "us-east-1"
+AWS_ACCOUNT_ID = "123456789012"  # 12桁のダミーアカウントID
+
 # アイコンの色マッピング
 ICON_COLORS = {
     "EC2": (255, 153, 0),      # オレンジ

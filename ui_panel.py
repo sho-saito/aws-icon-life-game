@@ -18,6 +18,22 @@ class UIPanel:
         # アイコン数のカウント
         self.icon_counts = {}
     
+    def _wrap_text(self, text, font, max_width):
+        """テキストをmax_width以内に折り返す。ARNのようにスペースが無い文字列は文字単位で分割する"""
+        lines = []
+        current = ""
+        for ch in text:
+            candidate = current + ch
+            if font.size(candidate)[0] <= max_width:
+                current = candidate
+            else:
+                if current:
+                    lines.append(current)
+                current = ch
+        if current:
+            lines.append(current)
+        return lines or [""]
+
     def update(self, all_icons, selected_icon):
         """UIパネルの状態を更新"""
         self.selected_icon = selected_icon
@@ -86,6 +102,19 @@ class UIPanel:
             )
             surface.blit(health_text, (self.rect.x + 20, self.rect.y + y_offset))
             y_offset += 25
+
+            # ARN（生成時に採番。長いのでパネル幅に合わせて折り返す）
+            arn = getattr(self.selected_icon, 'arn', None)
+            if arn:
+                arn_label = self.small_font.render("ARN:", True, UI_TEXT_COLOR)
+                surface.blit(arn_label, (self.rect.x + 20, self.rect.y + y_offset))
+                y_offset += 20
+                max_width = self.rect.width - 30  # 左右の余白
+                for line in self._wrap_text(arn, self.small_font, max_width):
+                    line_surface = self.small_font.render(line, True, UI_TEXT_COLOR)
+                    surface.blit(line_surface, (self.rect.x + 25, self.rect.y + y_offset))
+                    y_offset += 18
+                y_offset += 7
 
             # リタイア（retirement）予定のEC2はその旨を表示
             if getattr(self.selected_icon, 'retiring', False):
