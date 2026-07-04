@@ -116,13 +116,22 @@ class UIPanel:
                     y_offset += 18
                 y_offset += 7
 
-            # リタイア（retirement）予定のEC2はその旨を表示
+            # リタイア（retirement）予定のEC2はその旨を最優先で表示
             if getattr(self.selected_icon, 'retiring', False):
                 retire_text = self.small_font.render(
                     "Status: Scheduled for retirement", True, (255, 0, 0)
                 )
                 surface.blit(retire_text, (self.rect.x + 20, self.rect.y + y_offset))
                 y_offset += 25
+            else:
+                # 現在の状態を、色枠と同じ色で表示（バースト/接続/スケールアウト等）
+                get_label = getattr(self.selected_icon, 'state_label', None)
+                label = get_label() if get_label else None
+                if label:
+                    color = self.selected_icon.state_border_color() or UI_TEXT_COLOR
+                    state_text = self.small_font.render(f"State: {label}", True, color)
+                    surface.blit(state_text, (self.rect.x + 20, self.rect.y + y_offset))
+                    y_offset += 25
 
             # 依存関係
             if self.selected_icon.dependencies:

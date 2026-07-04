@@ -47,6 +47,7 @@ class AWSIcon(pygame.sprite.Sprite):
     AUTOSCALING_SPAWN_HEALTH_COST_RATIO = 0.1  # EC2を1体スポーンするごとに消費する体力の割合（その時点の残存体力の10%、増殖の連鎖を抑制）
     AUTOSCALING_SEPARATION_RADIUS = 220  # AutoScaling同士が反発し始める距離（ピクセル）
     AUTOSCALING_SEPARATION_FORCE = 0.3   # AutoScaling同士の反発力の最大値（近いほど強い）
+    AUTOSCALING_SCALE_IN_HIGHLIGHT_FRAMES = 6  # スケールインで削減されたEC2を紫枠でハイライトする残りフレーム数
 
     # EC2インスタンスのリタイア（retirement）に関する定数
     # 基盤ハードウェアの劣化により、古いEC2がランダムにリタイア予定になることを表現する
@@ -142,9 +143,14 @@ class AWSIcon(pygame.sprite.Sprite):
         self.retiring = False              # リタイア中フラグ
         self.retirement_announced = False  # リタイア通知済みフラグ（main側が参照して通知）
 
+        # AutoScalingのスケールインで削減対象になっているEC2のハイライト残りフレーム数
+        # （>0の間、スケールインと同じ紫枠で表示する）
+        self.scaling_in_timer = 0
+
         # AutoScalingの状態管理
         if self.service_type == "AutoScaling":
             self.autoscaling_state = 'monitoring'  # 'monitoring', 'scaling_out'
+            self.scaling_in = False  # このフレームで超過EC2を削減（スケールイン）中か
             self.state_timer = 0
             self.scale_duration = 0
             self.scale_cooldown = 0
@@ -365,6 +371,10 @@ class AWSIcon(pygame.sprite.Sprite):
         # EC2インスタンスのリタイア（retirement）処理
         if self.service_type == "EC2":
             self._update_retirement()
+
+        # スケールインで削減対象になっているEC2のハイライト残り時間を減らす
+        if self.scaling_in_timer > 0:
+            self.scaling_in_timer -= 1
         
         # Healthが黄色の域（30-60%）の場合、ランダムな動きを加えて停滞を防ぐ
         health_ratio = self.health / self.max_health
@@ -510,6 +520,8 @@ class AWSIcon(pygame.sprite.Sprite):
 
     def _autoscaling_behavior(self, all_icons):
         """AutoScalingの動作を実装"""
+        # スケールイン（超過EC2の削減）は毎フレーム判定するため、まずリセットする
+        self.scaling_in = False
         if self.autoscaling_state == 'monitoring':
             # モニタリング状態: EC2の集団を監視するような動き
 
@@ -537,10 +549,13 @@ class AWSIcon(pygame.sprite.Sprite):
                             and random.random() < self.AUTOSCALING_SCALE_OUT_PROBABILITY):
                         self._start_scaling('scaling_out', nearby_ec2s[:2])
                 elif len(nearby_ec2s) > self.desired_count:
-                    # 超過: 超過分のEC2（体力が低い順）のライフを急激に減らす
+                    # 超過: 超過分のEC2（体力が低い順）のライフを急激に減らす（スケールイン）
+                    self.scaling_in = True
                     excess = len(nearby_ec2s) - self.desired_count
                     for ec2 in sorted(nearby_ec2s, key=lambda e: e.health)[:excess]:
                         ec2.health = max(0, ec2.health - self.AUTOSCALING_EXCESS_DRAIN)
+                        # 削減対象のEC2もスケールインと同じ紫枠でハイライトする
+                        ec2.scaling_in_timer = self.AUTOSCALING_SCALE_IN_HIGHLIGHT_FRAMES
 
             # クールダウンの更新
             if self.scale_cooldown > 0:
@@ -639,6 +654,54 @@ class AWSIcon(pygame.sprite.Sprite):
                 and random.random() < self.EC2_RETIREMENT_PROBABILITY):
             self.retiring = True
 
+    # 状態遷移を色枠で可視化するための定義
+    # service_type: (状態を保持する属性名, {状態値: (ラベル, RGB色) または None})
+    # 値がNoneの状態（基本/待機状態）は枠を表示しない
+    STATE_INDICATORS = {
+        "Lambda": ("lambda_state", {
+            "normal": None,
+            "active": ("Active", (0, 200, 255)),   # 実行中: シアン
+            "burst": ("Burst", (255, 140, 0)),     # バースト: オレンジ
+        }),
+        "API Gateway": ("api_state", {
+            "patrol": None,
+            "connect": ("Connecting", (255, 140, 0)),  # リクエスト転送: オレンジ
+            "return": ("Returning", (0, 220, 120)),    # レスポンス返送: 緑
+        }),
+    }
+
+    def _current_state_indicator(self):
+        """現在の状態の (ラベル, 枠色) を返す。基本状態や状態なしはNone"""
+        # リタイア（retirement）は最優先で赤枠
+        if self.retiring:
+            return ("Retiring", (255, 0, 0))
+        # AutoScalingのスケールインで削減対象になっているEC2は、スケールインと同じ紫枠
+        if self.scaling_in_timer > 0:
+            return ("Scaling in", (160, 90, 220))
+        # AutoScalingはスケールアウト/スケールインを個別に表現する
+        # （スケールインはmonitoring中の超過削減で発生するフラグ）
+        if self.service_type == "AutoScaling":
+            if self.autoscaling_state == "scaling_out":
+                return ("Scaling out", (255, 140, 0))  # スケールアウト: オレンジ
+            if getattr(self, "scaling_in", False):
+                return ("Scaling in", (160, 90, 220))  # スケールイン: 紫
+            return None
+        config = self.STATE_INDICATORS.get(self.service_type)
+        if config:
+            attr_name, mapping = config
+            return mapping.get(getattr(self, attr_name, None))
+        return None
+
+    def state_border_color(self):
+        """現在の状態に応じた枠色を返す（無ければNone）"""
+        indicator = self._current_state_indicator()
+        return indicator[1] if indicator else None
+
+    def state_label(self):
+        """現在の状態を表す短いラベルを返す（無ければNone）"""
+        indicator = self._current_state_indicator()
+        return indicator[0] if indicator else None
+
     def _is_near(self, other_icon, distance_threshold):
         """他のアイコンが近くにいるかを判定"""
         dx = self.rect.centerx - other_icon.rect.centerx
@@ -657,9 +720,10 @@ class AWSIcon(pygame.sprite.Sprite):
                 midbottom=(self.rect.centerx, self.rect.top - 2))
             surface.blit(self.desired_label, label_rect)
 
-        # リタイア中のEC2は赤枠で強調表示
-        if self.retiring:
-            pygame.draw.rect(surface, (255, 0, 0), self.rect.inflate(6, 6), 3)
+        # 状態遷移を色枠で可視化（リタイア/バースト/スケールアウト等）
+        border_color = self.state_border_color()
+        if border_color:
+            pygame.draw.rect(surface, border_color, self.rect.inflate(6, 6), 3)
 
         # 選択状態の表示
         if self.selected:
