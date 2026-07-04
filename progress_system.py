@@ -23,6 +23,11 @@ class ProgressSystem:
             "Lambda-DynamoDB": {"achieved": False, "description": "Lambda and DynamoDB integration"},
             "S3-CloudFront": {"achieved": False, "description": "S3 and CloudFront integration"}
         }
+
+        # 進化の達成状況（同種アイコンの合体による進化発動）
+        self.evolution_achievements = {
+            "EC2-AutoScaling": {"achieved": False, "description": "EC2 x3 evolved into AutoScaling"}
+        }
         
         # 通知メッセージのキュー
         self.notifications = []
@@ -106,6 +111,21 @@ class ProgressSystem:
                             self.add_notification(f"Complementary Relation: {description}")
                         return
     
+    def record_evolution(self, source_type, target_type):
+        """進化の発動を実績として記録し、未達成なら通知する"""
+        key = f"{source_type}-{target_type}"
+        achievement = self.evolution_achievements.get(key)
+        if achievement is None:
+            # 未定義の進化ルールにも対応できるよう動的に登録する
+            achievement = {
+                "achieved": False,
+                "description": f"{source_type} evolved into {target_type}"
+            }
+            self.evolution_achievements[key] = achievement
+        if not achievement["achieved"]:
+            achievement["achieved"] = True
+            self.add_notification(f"Evolution Achieved: {achievement['description']}")
+
     def add_notification(self, message):
         """通知メッセージを追加"""
         # 絵文字を使わないようにする
@@ -140,11 +160,19 @@ class ProgressSystem:
         total = len(self.complementary_achievements)
         return achieved, total
     
+    def get_evolution_achievement_rate(self):
+        """進化の達成率を計算"""
+        achieved = sum(1 for item in self.evolution_achievements.values() if item["achieved"])
+        total = len(self.evolution_achievements)
+        return achieved, total
+
     def get_total_achievement_rate(self):
         """全体の達成率を計算"""
         dep_achieved, dep_total = self.get_dependency_achievement_rate()
         comp_achieved, comp_total = self.get_complementary_achievement_rate()
-        return dep_achieved + comp_achieved, dep_total + comp_total
+        evo_achieved, evo_total = self.get_evolution_achievement_rate()
+        return (dep_achieved + comp_achieved + evo_achieved,
+                dep_total + comp_total + evo_total)
     
     def draw(self, surface, font):
         """進行状況と通知を描画"""
@@ -188,6 +216,8 @@ class ProgressSystem:
              self.get_dependency_achievement_rate()),
             ("Complementary Relations", self.complementary_achievements,
              self.get_complementary_achievement_rate()),
+            ("Evolutions", self.evolution_achievements,
+             self.get_evolution_achievement_rate()),
         ]
         for heading, achievements, (sec_achieved, sec_total) in sections:
             heading_surface = heading_font.render(

@@ -191,9 +191,9 @@ class Game:
             self.all_icons.add(
                 AWSIcon(evolution.target_type, evolution.position, evolution.velocity)
             )
-            self.progress_system.add_notification(
-                f"Evolution: {len(evolution.icons)} {evolution.source_type} "
-                f"merged into {evolution.target_type}"
+            # 進化発動を実績として記録（通知＋Shift+Aオーバーレイに反映）
+            self.progress_system.record_evolution(
+                evolution.source_type, evolution.target_type
             )
 
     def _handle_interactions(self):
