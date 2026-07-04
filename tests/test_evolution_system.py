@@ -146,3 +146,28 @@ class TestEvolutionResult:
         assert len(evolutions) == 2
         evolved_ids = [id(icon) for e in evolutions for icon in e.icons]
         assert len(set(evolved_ids)) == 6
+
+
+class TestAutoScalingSpawnCost:
+    def test_spawning_ec2_consumes_ratio_of_current_health(self):
+        """EC2をスポーンするとその時点の残存体力の10%が消費される"""
+        autoscaling = make_icon("AutoScaling", (400, 300))
+        autoscaling.autoscaling_state = 'scaling_out'
+        autoscaling.health = 80
+        expected = 80 * (1 - autoscaling.AUTOSCALING_SPAWN_HEALTH_COST_RATIO)
+
+        autoscaling._complete_scaling()
+
+        assert autoscaling.spawn_requests[0][0] == "EC2"
+        assert autoscaling.health == pytest.approx(expected)
+
+    def test_spawn_cost_scales_with_remaining_health(self):
+        """残存体力が少ないほど消費量（絶対値）も小さくなる"""
+        low = make_icon("AutoScaling", (400, 300))
+        low.autoscaling_state = 'scaling_out'
+        low.health = 10
+
+        low._complete_scaling()
+
+        assert low.health == pytest.approx(9)
+        assert low.health >= 0

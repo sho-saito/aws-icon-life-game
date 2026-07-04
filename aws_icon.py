@@ -41,6 +41,7 @@ class AWSIcon(pygame.sprite.Sprite):
     AUTOSCALING_EXCESS_DRAIN = 0.5      # 近傍EC2がDesired超過のとき、超過分のEC2から急激に減らす体力（1フレームあたり）
     AUTOSCALING_SCALE_OUT_SPEED = 3.0   # スケールアウト時の移動速度（即応性を表現）
     AUTOSCALING_SPAWN_OFFSET = 60       # スケールアウトで起動するEC2の配置距離（ピクセル）
+    AUTOSCALING_SPAWN_HEALTH_COST_RATIO = 0.1  # EC2を1体スポーンするごとに消費する体力の割合（その時点の残存体力の10%、増殖の連鎖を抑制）
     AUTOSCALING_SEPARATION_RADIUS = 220  # AutoScaling同士が反発し始める距離（ピクセル）
     AUTOSCALING_SEPARATION_FORCE = 0.3   # AutoScaling同士の反発力の最大値（近いほど強い）
 
@@ -156,8 +157,6 @@ class AWSIcon(pygame.sprite.Sprite):
             return ["EC2"]  # EBSはEC2に依存（EC2にアタッチされる）
         elif self.service_type == "DynamoDB":
             return ["Lambda"]  # DynamoDBはLambdaに依存
-        elif self.service_type == "AutoScaling":
-            return ["EC2"]  # AutoScalingはEC2に依存
         return []
         
     def _handle_overlap(self, other_icon):
@@ -319,7 +318,9 @@ class AWSIcon(pygame.sprite.Sprite):
             self.stationary_frames = 0  # 動いた場合はカウンターをリセット
             
             # 依存関係を持たないアイコンは動いている間に回復
-            if not self.dependencies and self.health < self.max_health:
+            # （AutoScalingは回復対象外）
+            if (not self.dependencies and self.service_type != "AutoScaling"
+                    and self.health < self.max_health):
                 # 動きの速さに応じて回復量を調整（最大0.05/フレーム）
                 recovery_amount = min(0.05, distance_moved * 0.01)
                 self.health = min(self.max_health, self.health + recovery_amount)
@@ -526,6 +527,9 @@ class AWSIcon(pygame.sprite.Sprite):
             spawn_x = max(50, min(GAME_AREA_WIDTH - 50, spawn_x))
             spawn_y = max(50, min(SCREEN_HEIGHT - 50, spawn_y))
             self.spawn_requests.append(("EC2", (int(spawn_x), int(spawn_y))))
+            # EC2を生み出すコストとして、その時点の残存体力の一定割合を消費する。
+            # これによりEC2⇔AutoScalingの無限増殖ループを防ぎ、ゲームバランスを保つ
+            self.health = max(0, self.health - self.health * self.AUTOSCALING_SPAWN_HEALTH_COST_RATIO)
 
     def _advance_scaling_timer(self):
         """スケーリング状態のタイマーを進め、終了時にスケールアウト/インを実行してモニタリング状態に戻す"""
