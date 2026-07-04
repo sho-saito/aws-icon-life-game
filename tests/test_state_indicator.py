@@ -83,6 +83,32 @@ class TestStateIndicator:
         asg._autoscaling_behavior([asg])
         assert asg.scaling_in is False
 
+    def test_drained_ec2_shows_scaling_in_purple(self):
+        """スケールインで体力を削られているEC2も同じ紫枠になる"""
+        ec2 = make_icon("EC2")
+        ec2.scaling_in_timer = 3
+        assert ec2.state_label() == "Scaling in"
+        assert ec2.state_border_color() == (160, 90, 220)  # 紫
+
+    def test_ec2_scaling_in_highlight_expires(self):
+        """ハイライトタイマーが切れると枠は消える"""
+        ec2 = make_icon("EC2")
+        ec2.scaling_in_timer = 0
+        assert ec2.state_border_color() is None
+
+    def test_autoscaling_sets_highlight_on_drained_ec2(self):
+        """スケールイン時、削減対象のEC2にハイライトタイマーが立つ"""
+        asg = make_icon("AutoScaling")
+        asg.desired_count = 1
+        asg.autoscaling_state = "monitoring"
+        ec2s = [make_icon("EC2") for _ in range(3)]
+        for e in ec2s:
+            e.rect.center = asg.rect.center
+        asg._autoscaling_behavior([asg] + ec2s)
+        # 超過分（2体）にハイライトが立つ
+        highlighted = [e for e in ec2s if e.scaling_in_timer > 0]
+        assert len(highlighted) == 3 - asg.desired_count
+
     def test_retiring_takes_priority_with_red_border(self):
         ec2 = make_icon("EC2")
         ec2.retiring = True

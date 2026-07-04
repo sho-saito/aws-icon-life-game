@@ -47,6 +47,7 @@ class AWSIcon(pygame.sprite.Sprite):
     AUTOSCALING_SPAWN_HEALTH_COST_RATIO = 0.1  # EC2を1体スポーンするごとに消費する体力の割合（その時点の残存体力の10%、増殖の連鎖を抑制）
     AUTOSCALING_SEPARATION_RADIUS = 220  # AutoScaling同士が反発し始める距離（ピクセル）
     AUTOSCALING_SEPARATION_FORCE = 0.3   # AutoScaling同士の反発力の最大値（近いほど強い）
+    AUTOSCALING_SCALE_IN_HIGHLIGHT_FRAMES = 6  # スケールインで削減されたEC2を紫枠でハイライトする残りフレーム数
 
     # EC2インスタンスのリタイア（retirement）に関する定数
     # 基盤ハードウェアの劣化により、古いEC2がランダムにリタイア予定になることを表現する
@@ -141,6 +142,10 @@ class AWSIcon(pygame.sprite.Sprite):
         self.age_frames = 0                # 生成からの経過フレーム数
         self.retiring = False              # リタイア中フラグ
         self.retirement_announced = False  # リタイア通知済みフラグ（main側が参照して通知）
+
+        # AutoScalingのスケールインで削減対象になっているEC2のハイライト残りフレーム数
+        # （>0の間、スケールインと同じ紫枠で表示する）
+        self.scaling_in_timer = 0
 
         # AutoScalingの状態管理
         if self.service_type == "AutoScaling":
@@ -366,6 +371,10 @@ class AWSIcon(pygame.sprite.Sprite):
         # EC2インスタンスのリタイア（retirement）処理
         if self.service_type == "EC2":
             self._update_retirement()
+
+        # スケールインで削減対象になっているEC2のハイライト残り時間を減らす
+        if self.scaling_in_timer > 0:
+            self.scaling_in_timer -= 1
         
         # Healthが黄色の域（30-60%）の場合、ランダムな動きを加えて停滞を防ぐ
         health_ratio = self.health / self.max_health
@@ -545,6 +554,8 @@ class AWSIcon(pygame.sprite.Sprite):
                     excess = len(nearby_ec2s) - self.desired_count
                     for ec2 in sorted(nearby_ec2s, key=lambda e: e.health)[:excess]:
                         ec2.health = max(0, ec2.health - self.AUTOSCALING_EXCESS_DRAIN)
+                        # 削減対象のEC2もスケールインと同じ紫枠でハイライトする
+                        ec2.scaling_in_timer = self.AUTOSCALING_SCALE_IN_HIGHLIGHT_FRAMES
 
             # クールダウンの更新
             if self.scale_cooldown > 0:
@@ -664,6 +675,9 @@ class AWSIcon(pygame.sprite.Sprite):
         # リタイア（retirement）は最優先で赤枠
         if self.retiring:
             return ("Retiring", (255, 0, 0))
+        # AutoScalingのスケールインで削減対象になっているEC2は、スケールインと同じ紫枠
+        if self.scaling_in_timer > 0:
+            return ("Scaling in", (160, 90, 220))
         # AutoScalingはスケールアウト/スケールインを個別に表現する
         # （スケールインはmonitoring中の超過削減で発生するフラグ）
         if self.service_type == "AutoScaling":

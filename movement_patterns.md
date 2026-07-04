@@ -14,6 +14,7 @@
 | API Gateway | Returning（レスポンス返送） | 緑 |
 | AutoScaling | Scaling out（スケールアウト） | オレンジ |
 | AutoScaling | Scaling in（スケールイン・超過EC2の削減中） | 紫 |
+| EC2 | Scaling in（スケールインで削減されている） | 紫 |
 | EC2 | Retiring（リタイア予定） | 赤 |
 
 ## 実装済みの移動パターン
