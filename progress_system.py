@@ -148,28 +148,7 @@ class ProgressSystem:
     
     def draw(self, surface, font):
         """進行状況と通知を描画"""
-        # 達成率の表示
-        dep_achieved, dep_total = self.get_dependency_achievement_rate()
-        comp_achieved, comp_total = self.get_complementary_achievement_rate()
-        total_achieved, total_total = self.get_total_achievement_rate()
-        
-        # 達成率テキスト
-        achievement_text = f"Achievements: {total_achieved}/{total_total}"
-        dep_text = f"Dependencies: {dep_achieved}/{dep_total}"
-        comp_text = f"Complementary Relations: {comp_achieved}/{comp_total}"
-        
-        # テキスト描画
-        text_color = (50, 50, 50)
-        achievement_surface = font.render(achievement_text, True, text_color)
-        dep_surface = font.render(dep_text, True, text_color)
-        comp_surface = font.render(comp_text, True, text_color)
-        
-        # 位置調整（画面左上）
-        margin = 10
-        surface.blit(achievement_surface, (margin, margin))
-        surface.blit(dep_surface, (margin, margin + 25))
-        surface.blit(comp_surface, (margin, margin + 50))
-        
+        # 達成率の件数表示は画面左上には出さず、実績オーバーレイ（Shift+A）で確認する
         # 通知の表示
         self._draw_notifications(surface, font)
     
