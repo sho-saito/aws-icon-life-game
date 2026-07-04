@@ -173,6 +173,61 @@ class ProgressSystem:
         # 通知の表示
         self._draw_notifications(surface, font)
     
+    def draw_overlay(self, surface):
+        """全実績の達成状況を最前面の半透明オーバーレイとして表示する（Shift+A押下中）
+
+        下でアイコンたちが活動している様子が透けて見えるように、
+        半透明の暗幕の上に各実績の達成/未達成を一覧表示する。
+        """
+        from constants import SCREEN_WIDTH, SCREEN_HEIGHT
+
+        # 半透明の暗幕（アルファ付きSurfaceで下のアイコンを透過させる）
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+
+        title_font = pygame.font.SysFont(None, 48)
+        heading_font = pygame.font.SysFont(None, 32)
+        item_font = pygame.font.SysFont(None, 28)
+
+        achieved_color = (80, 220, 120)   # 達成: 緑
+        pending_color = (160, 160, 160)   # 未達成: グレー
+        white = (240, 240, 240)
+
+        margin_x = 60
+        y = 40
+
+        # タイトル（全体の達成率）
+        total_achieved, total_total = self.get_total_achievement_rate()
+        title_surface = title_font.render(
+            f"Achievements  {total_achieved} / {total_total}", True, white)
+        overlay.blit(title_surface, (margin_x, y))
+        y += 70
+
+        # 依存関係・補完関係の各セクションを一覧表示
+        sections = [
+            ("Dependencies", self.dependency_achievements,
+             self.get_dependency_achievement_rate()),
+            ("Complementary Relations", self.complementary_achievements,
+             self.get_complementary_achievement_rate()),
+        ]
+        for heading, achievements, (sec_achieved, sec_total) in sections:
+            heading_surface = heading_font.render(
+                f"{heading}  {sec_achieved} / {sec_total}", True, white)
+            overlay.blit(heading_surface, (margin_x, y))
+            y += 42
+
+            for item in achievements.values():
+                achieved = item["achieved"]
+                marker = "[x]" if achieved else "[ ]"
+                color = achieved_color if achieved else pending_color
+                line_surface = item_font.render(
+                    f"{marker}  {item['description']}", True, color)
+                overlay.blit(line_surface, (margin_x + 24, y))
+                y += 32
+            y += 24
+
+        surface.blit(overlay, (0, 0))
+
     def _draw_notifications(self, surface, font):
         """通知メッセージを描画"""
         if not self.notifications:

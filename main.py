@@ -94,8 +94,9 @@ class Game:
                 elif event.key == K_SPACE:
                     # スペースキーで新しいランダムなアイコンを追加
                     self._spawn_icon(random.choice(AWS_ICONS))
-                elif event.key in self.KEY_TO_SERVICE:
+                elif event.key in self.KEY_TO_SERVICE and not (event.mod & KMOD_SHIFT):
                     # アルファベットキーで対応するサービスのアイコンを生成
+                    # （ShiftはShift+Aの実績オーバーレイ用に予約し、生成はしない）
                     self._spawn_icon(self.KEY_TO_SERVICE[event.key])
             elif event.type == MOUSEBUTTONDOWN:
                 # UIパネル外（ゲームエリア内）のみ処理
@@ -347,7 +348,12 @@ class Game:
         
         # UIパネルの描画
         self.ui_panel.draw(self.screen)
-        
+
+        # Shift+A押下中は全実績の状況を最前面にオーバーレイ表示
+        keys = pygame.key.get_pressed()
+        if keys[K_a] and (keys[K_LSHIFT] or keys[K_RSHIFT]):
+            self.progress_system.draw_overlay(self.screen)
+
         pygame.display.flip()
     
     def run(self):
