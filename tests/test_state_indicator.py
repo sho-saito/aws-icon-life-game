@@ -32,17 +32,22 @@ class TestStateIndicator:
         api = make_icon("API Gateway")
         api.api_state = "connect"
         assert api.state_label() == "Connecting"
+        assert api.state_border_color() == (255, 140, 0)  # オレンジ
         api.api_state = "return"
         assert api.state_label() == "Returning"
+        assert api.state_border_color() == (0, 220, 120)  # 緑
         api.api_state = "patrol"
         assert api.state_label() is None
+        assert api.state_border_color() is None  # 基本状態は枠なし
 
     def test_autoscaling_scaling_out(self):
         asg = make_icon("AutoScaling")
         asg.autoscaling_state = "scaling_out"
         assert asg.state_label() == "Scaling out"
+        assert asg.state_border_color() == (255, 140, 0)  # オレンジ
         asg.autoscaling_state = "monitoring"
         assert asg.state_label() is None
+        assert asg.state_border_color() is None  # 基本状態は枠なし
 
     def test_retiring_takes_priority_with_red_border(self):
         ec2 = make_icon("EC2")
