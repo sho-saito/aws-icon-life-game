@@ -33,6 +33,16 @@ class Game:
         K_c: "CloudFront",
     }
 
+    # VPCのデフォルトクォータ（AWSアカウントのリージョンあたり5個）
+    # これを超えて6個目を作ろうとすると即座に失敗することを表現する
+    VPC_DEFAULT_QUOTA = 5
+    # デフォルトクォータ超過時のAWS CreateVpcエラーメッセージを忠実に再現
+    # （errorCode: VpcLimitExceeded）
+    VPC_QUOTA_ERROR_MESSAGE = (
+        "An error occurred (VpcLimitExceeded) when calling the CreateVpc "
+        "operation: The maximum number of VPCs has been reached."
+    )
+
     # 相互作用に関する定数
     VELOCITY_SLOWDOWN_FACTOR = 0.9
     VELOCITY_INCREASE_FACTOR = 1.1
@@ -80,6 +90,18 @@ class Game:
             position = (random.randint(50, GAME_AREA_WIDTH - 50),
                         random.randint(50, SCREEN_HEIGHT - 50))
         icon = AWSIcon(service, position)
+
+        # VPCはデフォルトクォータ（5個）を超えると6個目以降は即死する。
+        # AWSアカウントでデフォルトでは5個までしかVPCを作れないことの表現。
+        if service == "VPC":
+            existing_vpcs = sum(
+                1 for i in self.all_icons
+                if i.service_type == "VPC" and i.health > 0
+            )
+            if existing_vpcs >= self.VPC_DEFAULT_QUOTA:
+                icon.health = 0  # 即死（次の更新で除去される）
+                self.progress_system.add_notification(self.VPC_QUOTA_ERROR_MESSAGE)
+
         self.all_icons.add(icon)
         return icon
     
