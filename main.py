@@ -192,7 +192,10 @@ class Game:
             if icon.health <= 0:
                 dead_icons.add(icon)
             # EC2リタイア発動時に通知を出す（発動した瞬間のみ）
-            if getattr(icon, 'retiring', False) and not icon.retirement_announced:
+            # instance_idはEC2のみが持つため、service_typeでもガードする
+            if (icon.service_type == "EC2"
+                    and getattr(icon, 'retiring', False)
+                    and not icon.retirement_announced):
                 icon.retirement_announced = True
                 self.progress_system.add_notification(
                     self._ec2_retirement_message(icon)
