@@ -63,7 +63,7 @@ class TestEC2Retirement:
         assert ec2.health == before - ec2.EC2_RETIREMENT_HEALTH_DECREASE
 
     def test_retirement_triggers_notification_once(self, game):
-        """リタイア発動時にAWS風の通知が1度だけ出る"""
+        """リタイア発動時にAWS公式のリタイア通知が1度だけ出る"""
         ec2 = game._spawn_icon("EC2", (100, 100))
         ec2.retiring = True
 
@@ -71,12 +71,37 @@ class TestEC2Retirement:
         after_first = list(game.progress_system.notifications)
 
         assert ec2.retirement_announced is True
-        assert any("retirement" in msg.lower() and ec2.instance_id in msg
-                   for msg in after_first)
+        # AWS公式メッセージの文面・インスタンスID・リージョンが含まれる
+        assert any(
+            msg.startswith(
+                "EC2 has detected degradation of the underlying hardware "
+                "hosting your Amazon EC2 instance")
+            and ec2.instance_id in msg
+            and game.EC2_RETIREMENT_REGION in msg
+            and "We will stop your instance after" in msg
+            for msg in after_first
+        )
 
         # 2回目のupdateでは通知が増えない
         game.update()
         assert game.progress_system.notifications == after_first
+
+    def test_retirement_message_matches_official_wording(self, game):
+        """公式メッセージの文面が完全一致で再現されている"""
+        ec2 = game._spawn_icon("EC2", (100, 100))
+
+        message = game._ec2_retirement_message(ec2)
+
+        expected_prefix = (
+            f"EC2 has detected degradation of the underlying hardware hosting "
+            f"your Amazon EC2 instance (instance-ID: {ec2.instance_id}) "
+            f"associated with your AWS account (AWS Account ID: "
+            f"{game.aws_account_id}) in the {game.EC2_RETIREMENT_REGION} region. "
+            f"Due to this degradation your instance could already be "
+            f"unreachable. We will stop your instance after "
+        )
+        assert message.startswith(expected_prefix)
+        assert message.endswith(" UTC.")
 
     def test_non_ec2_icons_never_retire(self):
         vpc = make_icon("VPC", (100, 100))

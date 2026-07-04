@@ -6,6 +6,7 @@ import sys
 import os
 import random
 import math
+from datetime import datetime, timedelta, timezone
 from pygame.locals import *
 
 # 自作モジュールのインポート
@@ -43,6 +44,9 @@ class Game:
         "operation: The maximum number of VPCs has been reached."
     )
 
+    # EC2インスタンスのリタイア通知に使うリージョン（AWS公式メッセージの再現用）
+    EC2_RETIREMENT_REGION = "us-east-1"
+
     # 相互作用に関する定数
     VELOCITY_SLOWDOWN_FACTOR = 0.9
     VELOCITY_INCREASE_FACTOR = 1.1
@@ -75,6 +79,9 @@ class Game:
 
         # 進化システム
         self.evolution_system = EvolutionSystem()
+
+        # EC2リタイア通知に使うAWSアカウントID（12桁、公式メッセージの再現用）
+        self.aws_account_id = f"{random.randint(0, 10 ** 12 - 1):012d}"
         
         # 初期アイコンの生成
         self._create_initial_icons()
@@ -104,7 +111,28 @@ class Game:
 
         self.all_icons.add(icon)
         return icon
-    
+
+    def _ec2_retirement_message(self, icon):
+        """AWSのEC2インスタンスリタイア通知メール本文を忠実に再現する
+
+        公式メッセージ:
+        "EC2 has detected degradation of the underlying hardware hosting your
+        Amazon EC2 instance (instance-ID: ...) associated with your AWS account
+        (AWS Account ID: ...) in the ... region. Due to this degradation your
+        instance could already be unreachable. We will stop your instance
+        after ... UTC."
+        """
+        stop_time = (datetime.now(timezone.utc) + timedelta(days=14)).strftime(
+            "%Y-%m-%d %H:%M:%S")
+        return (
+            f"EC2 has detected degradation of the underlying hardware hosting "
+            f"your Amazon EC2 instance (instance-ID: {icon.instance_id}) "
+            f"associated with your AWS account (AWS Account ID: "
+            f"{self.aws_account_id}) in the {self.EC2_RETIREMENT_REGION} region. "
+            f"Due to this degradation your instance could already be "
+            f"unreachable. We will stop your instance after {stop_time} UTC."
+        )
+
     def handle_events(self):
         """イベント処理"""
         for event in pygame.event.get():
@@ -167,9 +195,7 @@ class Game:
             if getattr(icon, 'retiring', False) and not icon.retirement_announced:
                 icon.retirement_announced = True
                 self.progress_system.add_notification(
-                    f"Instance retirement scheduled: your EC2 instance "
-                    f"{icon.instance_id} is scheduled for retirement due to "
-                    f"degradation of the underlying hardware."
+                    self._ec2_retirement_message(icon)
                 )
         
         # 削除対象のアイコンを処理

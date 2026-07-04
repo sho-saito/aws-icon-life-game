@@ -136,8 +136,8 @@ class AWSIcon(pygame.sprite.Sprite):
         self.retiring = False              # リタイア中フラグ
         self.retirement_announced = False  # リタイア通知済みフラグ（main側が参照して通知）
         if self.service_type == "EC2":
-            # リタイア通知で表示するインスタンスID（AWSのi-xxxxxxxx形式を模倣）
-            self.instance_id = f"i-{random.randint(0, 0xffffffff):08x}"
+            # リタイア通知で表示するインスタンスID（AWSのi-＋17桁hex形式を模倣）
+            self.instance_id = f"i-{random.randint(0, 16 ** 17 - 1):017x}"
 
         # AutoScalingの状態管理
         if self.service_type == "AutoScaling":
