@@ -3,8 +3,6 @@
 
 import re
 
-import pytest
-
 from aws_icon import AWSIcon
 from constants import AWS_REGION, AWS_ACCOUNT_ID
 
