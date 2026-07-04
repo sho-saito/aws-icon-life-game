@@ -41,7 +41,7 @@ class AWSIcon(pygame.sprite.Sprite):
     AUTOSCALING_EXCESS_DRAIN = 0.5      # 近傍EC2がDesired超過のとき、超過分のEC2から急激に減らす体力（1フレームあたり）
     AUTOSCALING_SCALE_OUT_SPEED = 3.0   # スケールアウト時の移動速度（即応性を表現）
     AUTOSCALING_SPAWN_OFFSET = 60       # スケールアウトで起動するEC2の配置距離（ピクセル）
-    AUTOSCALING_SPAWN_HEALTH_COST = 40  # EC2を1体スポーンするごとに消費する自身の体力（増殖の連鎖を抑制）
+    AUTOSCALING_SPAWN_HEALTH_COST = 20  # EC2を1体スポーンするごとに消費する自身の体力（増殖の連鎖を抑制）
     AUTOSCALING_SEPARATION_RADIUS = 220  # AutoScaling同士が反発し始める距離（ピクセル）
     AUTOSCALING_SEPARATION_FORCE = 0.3   # AutoScaling同士の反発力の最大値（近いほど強い）
 
