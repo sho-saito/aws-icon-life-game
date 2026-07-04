@@ -3,6 +3,8 @@
 
 import pygame
 
+from evolution_system import EvolutionSystem
+
 class ProgressSystem:
     """ゲームの進行状況を管理するクラス"""
     
@@ -25,8 +27,15 @@ class ProgressSystem:
         }
 
         # 進化の達成状況（同種アイコンの合体による進化発動）
+        # EvolutionSystemの進化ルールから自動生成するため、
+        # 進化パターンを追加すれば自動的に実績表示の対象になる
+        group_size = EvolutionSystem.GROUP_SIZE
         self.evolution_achievements = {
-            "EC2-AutoScaling": {"achieved": False, "description": "EC2 x3 evolved into AutoScaling"}
+            f"{source}-{target}": {
+                "achieved": False,
+                "description": f"{source} x{group_size} evolved into {target}",
+            }
+            for source, target in EvolutionSystem.EVOLUTION_RULES.items()
         }
         
         # 通知メッセージのキュー

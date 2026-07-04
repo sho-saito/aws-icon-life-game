@@ -130,3 +130,16 @@ class TestEvolutionAchievements:
         progress.record_evolution("Lambda", "StepFunctions")
 
         assert progress.evolution_achievements["Lambda-StepFunctions"]["achieved"] is True
+
+    def test_evolution_achievements_derived_from_rules(self, progress):
+        """進化ルールを追加すれば自動的に実績表示の対象になる"""
+        from evolution_system import EvolutionSystem
+
+        expected_keys = {
+            f"{source}-{target}"
+            for source, target in EvolutionSystem.EVOLUTION_RULES.items()
+        }
+        assert expected_keys <= set(progress.evolution_achievements)
+        # 初期状態ではすべて未達成として一覧に載る
+        for key in expected_keys:
+            assert progress.evolution_achievements[key]["achieved"] is False
