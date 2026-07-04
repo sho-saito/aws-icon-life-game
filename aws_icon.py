@@ -48,7 +48,7 @@ class AWSIcon(pygame.sprite.Sprite):
     # EC2インスタンスのリタイア（retirement）に関する定数
     # 基盤ハードウェアの劣化により、古いEC2がランダムにリタイア予定になることを表現する
     EC2_RETIREMENT_MIN_AGE_FRAMES = 1800  # リタイア対象になるまでの最小経過フレーム（約30秒）
-    EC2_RETIREMENT_PROBABILITY = 0.0002   # 対象EC2が毎フレームでリタイア発動する確率
+    EC2_RETIREMENT_PROBABILITY = 0.00005  # 対象EC2が毎フレームでリタイア発動する確率
 
     def __init__(self, service_type, position, velocity=None):
         super().__init__()
