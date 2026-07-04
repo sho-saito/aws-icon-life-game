@@ -6,6 +6,7 @@ import sys
 import os
 import random
 import math
+from datetime import datetime, timedelta, timezone
 from pygame.locals import *
 
 # 自作モジュールのインポート
@@ -43,6 +44,9 @@ class Game:
         "operation: The maximum number of VPCs has been reached."
     )
 
+    # EC2インスタンスのリタイア通知に使うリージョン（AWS公式メッセージの再現用）
+    EC2_RETIREMENT_REGION = "us-east-1"
+
     # 相互作用に関する定数
     VELOCITY_SLOWDOWN_FACTOR = 0.9
     VELOCITY_INCREASE_FACTOR = 1.1
@@ -75,6 +79,9 @@ class Game:
 
         # 進化システム
         self.evolution_system = EvolutionSystem()
+
+        # EC2リタイア通知に使うAWSアカウントID（12桁、公式メッセージの再現用）
+        self.aws_account_id = f"{random.randint(0, 10 ** 12 - 1):012d}"
         
         # 初期アイコンの生成
         self._create_initial_icons()
@@ -104,7 +111,28 @@ class Game:
 
         self.all_icons.add(icon)
         return icon
-    
+
+    def _ec2_retirement_message(self, icon):
+        """AWSのEC2インスタンスリタイア通知メール本文を忠実に再現する
+
+        公式メッセージ:
+        "EC2 has detected degradation of the underlying hardware hosting your
+        Amazon EC2 instance (instance-ID: ...) associated with your AWS account
+        (AWS Account ID: ...) in the ... region. Due to this degradation your
+        instance could already be unreachable. We will stop your instance
+        after ... UTC."
+        """
+        stop_time = (datetime.now(timezone.utc) + timedelta(days=14)).strftime(
+            "%Y-%m-%d %H:%M:%S")
+        return (
+            f"EC2 has detected degradation of the underlying hardware hosting "
+            f"your Amazon EC2 instance (instance-ID: {icon.instance_id}) "
+            f"associated with your AWS account (AWS Account ID: "
+            f"{self.aws_account_id}) in the {self.EC2_RETIREMENT_REGION} region. "
+            f"Due to this degradation your instance could already be "
+            f"unreachable. We will stop your instance after {stop_time} UTC."
+        )
+
     def handle_events(self):
         """イベント処理"""
         for event in pygame.event.get():
@@ -163,6 +191,12 @@ class Game:
             icon.update(self.all_icons)
             if icon.health <= 0:
                 dead_icons.add(icon)
+            # EC2リタイア発動時に通知を出す（発動した瞬間のみ）
+            if getattr(icon, 'retiring', False) and not icon.retirement_announced:
+                icon.retirement_announced = True
+                self.progress_system.add_notification(
+                    self._ec2_retirement_message(icon)
+                )
         
         # 削除対象のアイコンを処理
         if dead_icons:
@@ -234,7 +268,7 @@ class Game:
                     # 依存関係の処理
                     if icon2.service_type in icon1.dependencies:
                         # 依存関係が満たされた場合、体力回復を加速
-                        icon1.health = min(icon1.max_health, icon1.health + 5)
+                        icon1.recover(5)
                     
                     # 補完関係の処理
                     self._handle_complementary_relations(icon1, icon2)
@@ -303,8 +337,8 @@ class Game:
             icon1.velocity = [v * self.VELOCITY_SLOWDOWN_FACTOR for v in icon1.velocity]
             icon2.velocity = [v * self.VELOCITY_SLOWDOWN_FACTOR for v in icon2.velocity]
             # 体力を少し回復（過度な回復を防ぐ）
-            icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
-            icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
+            icon1.recover(self.HEALTH_RECOVERY_AMOUNT)
+            icon2.recover(self.HEALTH_RECOVERY_AMOUNT)
             
             # EC2とEBSが近くにいる場合、EBSはEC2に追従する傾向を強める
             if icon1.service_type == "EC2" and icon2.service_type == "EBS":
@@ -327,8 +361,8 @@ class Game:
             icon1.velocity = self._cap_velocity(icon1.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
             icon2.velocity = self._cap_velocity(icon2.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
             # 体力を少し回復（過度な回復を防ぐ）
-            icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
-            icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
+            icon1.recover(self.HEALTH_RECOVERY_AMOUNT)
+            icon2.recover(self.HEALTH_RECOVERY_AMOUNT)
 
         # S3とCloudFrontの補完関係
         if (icon1.service_type == "S3" and icon2.service_type == "CloudFront") or \
@@ -337,8 +371,8 @@ class Game:
             icon1.velocity = self._cap_velocity(icon1.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
             icon2.velocity = self._cap_velocity(icon2.velocity, self.VELOCITY_INCREASE_FACTOR, self.VELOCITY_MAX_MULTIPLIER)
             # 体力を少し回復（過度な回復を防ぐ）
-            icon1.health = min(icon1.max_health, icon1.health + self.HEALTH_RECOVERY_AMOUNT)
-            icon2.health = min(icon2.max_health, icon2.health + self.HEALTH_RECOVERY_AMOUNT)
+            icon1.recover(self.HEALTH_RECOVERY_AMOUNT)
+            icon2.recover(self.HEALTH_RECOVERY_AMOUNT)
 
             # CloudFrontの場合は追加で速度を上げる（配信の高速化を表現）
             cloudfront_boost_factor = 1.2

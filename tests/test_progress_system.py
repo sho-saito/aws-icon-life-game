@@ -143,3 +143,30 @@ class TestEvolutionAchievements:
         # 初期状態ではすべて未達成として一覧に載る
         for key in expected_keys:
             assert progress.evolution_achievements[key]["achieved"] is False
+
+
+class TestNotificationWrapping:
+    def test_long_message_wraps_into_multiple_lines(self, progress):
+        import pygame
+        font = pygame.font.SysFont(None, 26)
+        long_message = (
+            "EC2 has detected degradation of the underlying hardware hosting "
+            "your Amazon EC2 instance (instance-ID: i-0123456789abcdef0) "
+            "associated with your AWS account (AWS Account ID: 123456789012) "
+            "in the us-east-1 region."
+        )
+        max_width = 300
+
+        lines = progress._wrap_text(long_message, font, max_width)
+
+        assert len(lines) > 1
+        for line in lines:
+            assert font.size(line)[0] <= max_width
+
+    def test_short_message_is_single_line(self, progress):
+        import pygame
+        font = pygame.font.SysFont(None, 26)
+
+        lines = progress._wrap_text("Short one", font, 400)
+
+        assert lines == ["Short one"]

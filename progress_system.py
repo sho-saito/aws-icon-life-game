@@ -246,22 +246,50 @@ class ProgressSystem:
 
         surface.blit(overlay, (0, 0))
 
+    def _wrap_text(self, text, font, max_width):
+        """テキストをmax_width以内に収まるよう単語単位で折り返して行のリストを返す"""
+        words = text.split(" ")
+        lines = []
+        current = ""
+        for word in words:
+            candidate = word if not current else f"{current} {word}"
+            if font.size(candidate)[0] <= max_width:
+                current = candidate
+            else:
+                if current:
+                    lines.append(current)
+                # 単語単体がmax_widthを超える場合もそのまま1行として扱う
+                current = word
+        if current:
+            lines.append(current)
+        return lines or [""]
+
     def _draw_notifications(self, surface, font):
-        """通知メッセージを描画"""
+        """通知メッセージを描画（横幅を超える場合は縮小せず折り返す）"""
         if not self.notifications:
             return
-        
+
         # 定数をインポート
         from constants import GAME_AREA_WIDTH
-        
-        # 通知の高さと間隔を大きくする
-        notification_height = 40
-        total_height = len(self.notifications) * notification_height
-        
-        # 通知の位置（ゲームエリア下部）
-        start_y = surface.get_height() - total_height - 20
-        
-        for i, message in enumerate(self.notifications):
+
+        # 文字が小さくなりすぎないよう、フォントサイズは固定して折り返す
+        notification_font = pygame.font.SysFont(None, 26)
+        line_height = notification_font.get_linesize()
+        max_text_width = GAME_AREA_WIDTH - 40  # 左右に20pxずつ余白
+        v_padding = 10  # 各通知ブロックの上下余白
+
+        # 各通知を折り返し、ブロックの高さを算出
+        blocks = []
+        for message in self.notifications:
+            lines = self._wrap_text(message, notification_font, max_text_width)
+            block_height = len(lines) * line_height + v_padding * 2
+            blocks.append((message, lines, block_height))
+
+        # 通知全体をゲームエリア下部に積み上げる
+        total_height = sum(block_height for _, _, block_height in blocks)
+        y = surface.get_height() - total_height - 20
+
+        for message, lines, block_height in blocks:
             # 通知の透明度（表示時間に応じて変化）
             alpha = 255
             if message in self.notification_timers:
@@ -270,35 +298,19 @@ class ProgressSystem:
                     alpha = int(255 * timer / 30)
                 elif timer > self.notification_duration - 30:  # フェードアウト
                     alpha = int(255 * (self.notification_duration - timer) / 30)
-            
-            # 通知テキスト（フォントサイズを適切に調整）
-            notification_font = pygame.font.SysFont(None, 26)  # フォントサイズを小さく調整
-            text_surface = notification_font.render(message, True, (255, 255, 255))
-            text_surface.set_alpha(alpha)
-            
-            # 通知背景（ゲームエリア幅いっぱいに）
-            bg_rect = pygame.Rect(
-                0,  # 左端から
-                start_y + i * notification_height,
-                GAME_AREA_WIDTH,  # ゲームエリア幅いっぱい
-                notification_height
-            )
-            bg_surface = pygame.Surface((bg_rect.width, bg_rect.height))
-            bg_surface.fill((0, 0, 100))  # 濃い青色に変更
-            bg_surface.set_alpha(int(alpha * 0.8))  # 透明度を少し下げる
-            
-            # 描画
-            surface.blit(bg_surface, bg_rect)
-            
-            # テキストがゲームエリア幅を超える場合は調整
-            if text_surface.get_width() > GAME_AREA_WIDTH - 40:  # 左右に20pxずつ余白
-                # テキストを縮小
-                scale_factor = (GAME_AREA_WIDTH - 40) / text_surface.get_width()
-                new_width = int(text_surface.get_width() * scale_factor)
-                new_height = int(text_surface.get_height() * scale_factor)
-                text_surface = pygame.transform.scale(text_surface, (new_width, new_height))
-            
-            # テキストはゲームエリア内で中央揃え
-            text_x = (GAME_AREA_WIDTH - text_surface.get_width()) / 2
-            text_y = start_y + i * notification_height + (notification_height - text_surface.get_height()) / 2
-            surface.blit(text_surface, (text_x, text_y))
+
+            # 通知背景（ゲームエリア幅いっぱい、行数に応じた高さ）
+            bg_surface = pygame.Surface((GAME_AREA_WIDTH, block_height))
+            bg_surface.fill((0, 0, 100))  # 濃い青色
+            bg_surface.set_alpha(int(alpha * 0.8))
+            surface.blit(bg_surface, (0, y))
+
+            # 各行を中央揃えで描画（縮小はしない）
+            for j, line in enumerate(lines):
+                line_surface = notification_font.render(line, True, (255, 255, 255))
+                line_surface.set_alpha(alpha)
+                text_x = (GAME_AREA_WIDTH - line_surface.get_width()) / 2
+                text_y = y + v_padding + j * line_height
+                surface.blit(line_surface, (text_x, text_y))
+
+            y += block_height

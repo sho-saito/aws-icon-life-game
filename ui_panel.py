@@ -86,7 +86,15 @@ class UIPanel:
             )
             surface.blit(health_text, (self.rect.x + 20, self.rect.y + y_offset))
             y_offset += 25
-            
+
+            # リタイア（retirement）予定のEC2はその旨を表示
+            if getattr(self.selected_icon, 'retiring', False):
+                retire_text = self.small_font.render(
+                    "Status: Scheduled for retirement", True, (255, 0, 0)
+                )
+                surface.blit(retire_text, (self.rect.x + 20, self.rect.y + y_offset))
+                y_offset += 25
+
             # 依存関係
             if self.selected_icon.dependencies:
                 deps_text = self.small_font.render(

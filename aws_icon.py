@@ -45,6 +45,11 @@ class AWSIcon(pygame.sprite.Sprite):
     AUTOSCALING_SEPARATION_RADIUS = 220  # AutoScaling同士が反発し始める距離（ピクセル）
     AUTOSCALING_SEPARATION_FORCE = 0.3   # AutoScaling同士の反発力の最大値（近いほど強い）
 
+    # EC2インスタンスのリタイア（retirement）に関する定数
+    # 基盤ハードウェアの劣化により、古いEC2がランダムにリタイア予定になることを表現する
+    EC2_RETIREMENT_MIN_AGE_FRAMES = 1800  # リタイア対象になるまでの最小経過フレーム（約30秒）
+    EC2_RETIREMENT_PROBABILITY = 0.00005  # 対象EC2が毎フレームでリタイア発動する確率
+
     def __init__(self, service_type, position, velocity=None):
         super().__init__()
         self.service_type = service_type
@@ -124,6 +129,14 @@ class AWSIcon(pygame.sprite.Sprite):
         # 進化の進行状況（EvolutionSystemが更新する）
         self.evolution_timer = 0       # 進化条件を満たしている継続フレーム数
         self.evolution_progress = 0.0  # 進化までの進行度（0.0〜1.0）
+
+        # EC2インスタンスのリタイア（retirement）表現用
+        self.age_frames = 0                # 生成からの経過フレーム数
+        self.retiring = False              # リタイア中フラグ
+        self.retirement_announced = False  # リタイア通知済みフラグ（main側が参照して通知）
+        if self.service_type == "EC2":
+            # リタイア通知で表示するインスタンスID（AWSのi-＋17桁hex形式を模倣）
+            self.instance_id = f"i-{random.randint(0, 16 ** 17 - 1):017x}"
 
         # AutoScalingの状態管理
         if self.service_type == "AutoScaling":
@@ -280,7 +293,7 @@ class AWSIcon(pygame.sprite.Sprite):
                     self.health = max(0, self.health - self.DEPENDENCY_HEALTH_DECREASE)
             elif self.health < self.max_health and self.service_type != "AutoScaling":
                 # AutoScalingは依存関係（EC2近接）による体力回復を行わない
-                self.health = min(self.max_health, self.health + self.DEPENDENCY_HEALTH_RECOVERY)
+                self.recover(self.DEPENDENCY_HEALTH_RECOVERY)
         
         # 相互作用タイマーの更新
         if self.interaction_timer > 0:
@@ -288,6 +301,10 @@ class AWSIcon(pygame.sprite.Sprite):
         
         # 全アイコン共通の微細なHealth減少（生存コスト）
         self.health = max(0, self.health - self.SURVIVAL_COST)
+
+        # EC2インスタンスのリタイア（retirement）処理
+        if self.service_type == "EC2":
+            self._update_retirement()
         
         # Healthが黄色の域（30-60%）の場合、ランダムな動きを加えて停滞を防ぐ
         health_ratio = self.health / self.max_health
@@ -323,7 +340,7 @@ class AWSIcon(pygame.sprite.Sprite):
                     and self.health < self.max_health):
                 # 動きの速さに応じて回復量を調整（最大0.05/フレーム）
                 recovery_amount = min(0.05, distance_moved * 0.01)
-                self.health = min(self.max_health, self.health + recovery_amount)
+                self.recover(recovery_amount)
         
         # 停滞時間が長すぎる場合はHealthを減少
         if self.stationary_frames > self.max_stationary_frames:
@@ -429,7 +446,7 @@ class AWSIcon(pygame.sprite.Sprite):
             vpc_count = sum(1 for icon in all_icons if icon.service_type == "VPC")
             if vpc_count <= 5:
                 recovery_rate = 0.2  # 通常の回復速度より高い
-                self.health = min(self.max_health, self.health + recovery_rate)
+                self.recover(recovery_rate)
 
     def _autoscaling_behavior(self, all_icons):
         """AutoScalingの動作を実装"""
@@ -542,6 +559,26 @@ class AWSIcon(pygame.sprite.Sprite):
             self.scale_cooldown = random.randint(
                 self.AUTOSCALING_MIN_COOLDOWN_FRAMES, self.AUTOSCALING_MAX_COOLDOWN_FRAMES)  # クールダウン開始
 
+    def recover(self, amount):
+        """体力を回復する。リタイア（retirement）予定のアイコンは一切回復しない"""
+        if self.retiring:
+            return
+        self.health = min(self.max_health, self.health + amount)
+
+    def _update_retirement(self):
+        """EC2インスタンスのリタイア（retirement）を処理する
+
+        生成から十分に時間が経過したEC2は、基盤ハードウェアの劣化を模して
+        ランダムにリタイアが発動する。リタイア中は一切回復しなくなり（recover参照）、
+        体力は生存コスト等で自然に減っていく。
+        （リタイア発動の通知と赤枠表示はそれぞれmain側とdraw()で行う）
+        """
+        self.age_frames += 1
+        if (not self.retiring
+                and self.age_frames >= self.EC2_RETIREMENT_MIN_AGE_FRAMES
+                and random.random() < self.EC2_RETIREMENT_PROBABILITY):
+            self.retiring = True
+
     def _is_near(self, other_icon, distance_threshold):
         """他のアイコンが近くにいるかを判定"""
         dx = self.rect.centerx - other_icon.rect.centerx
@@ -559,6 +596,10 @@ class AWSIcon(pygame.sprite.Sprite):
             label_rect = self.desired_label.get_rect(
                 midbottom=(self.rect.centerx, self.rect.top - 2))
             surface.blit(self.desired_label, label_rect)
+
+        # リタイア中のEC2は赤枠で強調表示
+        if self.retiring:
+            pygame.draw.rect(surface, (255, 0, 0), self.rect.inflate(6, 6), 3)
 
         # 選択状態の表示
         if self.selected:
