@@ -49,7 +49,6 @@ class AWSIcon(pygame.sprite.Sprite):
     # 基盤ハードウェアの劣化により、古いEC2がランダムにリタイア予定になることを表現する
     EC2_RETIREMENT_MIN_AGE_FRAMES = 1800  # リタイア対象になるまでの最小経過フレーム（約30秒）
     EC2_RETIREMENT_PROBABILITY = 0.0002   # 対象EC2が毎フレームでリタイア発動する確率
-    EC2_RETIREMENT_HEALTH_DECREASE = 0.05  # リタイア中に加速する体力減少（1フレームあたり）
 
     def __init__(self, service_type, position, velocity=None):
         super().__init__()
@@ -570,17 +569,15 @@ class AWSIcon(pygame.sprite.Sprite):
         """EC2インスタンスのリタイア（retirement）を処理する
 
         生成から十分に時間が経過したEC2は、基盤ハードウェアの劣化を模して
-        ランダムにリタイアが発動する。一度リタイアすると体力の減少が加速する。
+        ランダムにリタイアが発動する。リタイア中は一切回復しなくなり（recover参照）、
+        体力は生存コスト等で自然に減っていく。
         （リタイア発動の通知と赤枠表示はそれぞれmain側とdraw()で行う）
         """
         self.age_frames += 1
-        if not self.retiring:
-            if (self.age_frames >= self.EC2_RETIREMENT_MIN_AGE_FRAMES
-                    and random.random() < self.EC2_RETIREMENT_PROBABILITY):
-                self.retiring = True
-        else:
-            # リタイア中は体力の減少が加速する
-            self.health = max(0, self.health - self.EC2_RETIREMENT_HEALTH_DECREASE)
+        if (not self.retiring
+                and self.age_frames >= self.EC2_RETIREMENT_MIN_AGE_FRAMES
+                and random.random() < self.EC2_RETIREMENT_PROBABILITY):
+            self.retiring = True
 
     def _is_near(self, other_icon, distance_threshold):
         """他のアイコンが近くにいるかを判定"""

@@ -52,15 +52,15 @@ class TestEC2Retirement:
 
         assert ec2.retiring is False
 
-    def test_retiring_ec2_health_decreases_faster(self):
-        """リタイア中は体力減少が加速する"""
+    def test_retiring_ec2_has_no_extra_health_drain(self):
+        """リタイア中でも追加の体力減少は発生しない（_update_retirement単体では減らない）"""
         ec2 = make_icon("EC2", (100, 100))
         ec2.retiring = True
         before = ec2.health
 
         ec2._update_retirement()
 
-        assert ec2.health == before - ec2.EC2_RETIREMENT_HEALTH_DECREASE
+        assert ec2.health == before
 
     def test_retirement_triggers_notification_once(self, game):
         """リタイア発動時にAWS公式のリタイア通知が1度だけ出る"""
