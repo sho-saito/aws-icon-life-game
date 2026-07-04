@@ -639,6 +639,47 @@ class AWSIcon(pygame.sprite.Sprite):
                 and random.random() < self.EC2_RETIREMENT_PROBABILITY):
             self.retiring = True
 
+    # 状態遷移を色枠で可視化するための定義
+    # service_type: (状態を保持する属性名, {状態値: (ラベル, RGB色) または None})
+    # 値がNoneの状態（基本/待機状態）は枠を表示しない
+    STATE_INDICATORS = {
+        "Lambda": ("lambda_state", {
+            "normal": None,
+            "active": ("Active", (0, 200, 255)),   # 実行中: シアン
+            "burst": ("Burst", (255, 140, 0)),     # バースト: オレンジ
+        }),
+        "API Gateway": ("api_state", {
+            "patrol": None,
+            "connect": ("Connecting", (255, 140, 0)),  # リクエスト転送: オレンジ
+            "return": ("Returning", (0, 220, 120)),    # レスポンス返送: 緑
+        }),
+        "AutoScaling": ("autoscaling_state", {
+            "monitoring": None,
+            "scaling_out": ("Scaling out", (255, 140, 0)),  # スケールアウト: オレンジ
+        }),
+    }
+
+    def _current_state_indicator(self):
+        """現在の状態の (ラベル, 枠色) を返す。基本状態や状態なしはNone"""
+        # リタイア（retirement）は最優先で赤枠
+        if self.retiring:
+            return ("Retiring", (255, 0, 0))
+        config = self.STATE_INDICATORS.get(self.service_type)
+        if config:
+            attr_name, mapping = config
+            return mapping.get(getattr(self, attr_name, None))
+        return None
+
+    def state_border_color(self):
+        """現在の状態に応じた枠色を返す（無ければNone）"""
+        indicator = self._current_state_indicator()
+        return indicator[1] if indicator else None
+
+    def state_label(self):
+        """現在の状態を表す短いラベルを返す（無ければNone）"""
+        indicator = self._current_state_indicator()
+        return indicator[0] if indicator else None
+
     def _is_near(self, other_icon, distance_threshold):
         """他のアイコンが近くにいるかを判定"""
         dx = self.rect.centerx - other_icon.rect.centerx
@@ -657,9 +698,10 @@ class AWSIcon(pygame.sprite.Sprite):
                 midbottom=(self.rect.centerx, self.rect.top - 2))
             surface.blit(self.desired_label, label_rect)
 
-        # リタイア中のEC2は赤枠で強調表示
-        if self.retiring:
-            pygame.draw.rect(surface, (255, 0, 0), self.rect.inflate(6, 6), 3)
+        # 状態遷移を色枠で可視化（リタイア/バースト/スケールアウト等）
+        border_color = self.state_border_color()
+        if border_color:
+            pygame.draw.rect(surface, border_color, self.rect.inflate(6, 6), 3)
 
         # 選択状態の表示
         if self.selected:

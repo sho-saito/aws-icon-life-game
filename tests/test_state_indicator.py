@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+from aws_icon import AWSIcon
+
+
+def make_icon(service_type):
+    return AWSIcon(service_type, (10, 10), velocity=[0, 0])
+
+
+class TestStateIndicator:
+    def test_base_states_have_no_border(self):
+        """基本/待機状態は枠色・ラベルなし"""
+        lam = make_icon("Lambda")
+        lam.lambda_state = "normal"
+        assert lam.state_border_color() is None
+        assert lam.state_label() is None
+
+    def test_lambda_burst_has_orange_border_and_label(self):
+        lam = make_icon("Lambda")
+        lam.lambda_state = "burst"
+        assert lam.state_border_color() == (255, 140, 0)
+        assert lam.state_label() == "Burst"
+
+    def test_lambda_active_has_border(self):
+        lam = make_icon("Lambda")
+        lam.lambda_state = "active"
+        assert lam.state_border_color() == (0, 200, 255)
+        assert lam.state_label() == "Active"
+
+    def test_api_gateway_states(self):
+        api = make_icon("API Gateway")
+        api.api_state = "connect"
+        assert api.state_label() == "Connecting"
+        api.api_state = "return"
+        assert api.state_label() == "Returning"
+        api.api_state = "patrol"
+        assert api.state_label() is None
+
+    def test_autoscaling_scaling_out(self):
+        asg = make_icon("AutoScaling")
+        asg.autoscaling_state = "scaling_out"
+        assert asg.state_label() == "Scaling out"
+        asg.autoscaling_state = "monitoring"
+        assert asg.state_label() is None
+
+    def test_retiring_takes_priority_with_red_border(self):
+        ec2 = make_icon("EC2")
+        ec2.retiring = True
+        assert ec2.state_border_color() == (255, 0, 0)
+        assert ec2.state_label() == "Retiring"
+
+    def test_service_without_state_machine_has_no_indicator(self):
+        s3 = make_icon("S3")
+        assert s3.state_border_color() is None
+        assert s3.state_label() is None
