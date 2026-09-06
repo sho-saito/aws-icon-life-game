@@ -16,13 +16,23 @@ git clone https://github.com/sho-saito/aws-icon-life-game.git
 cd aws-icon-life-game
 ```
 
-2. Python仮想環境の作成と有効化
+2. 起動スクリプトで実行（推奨）
+
+venv の作成・依存パッケージのインストール・起動をまとめて行います。
+pygame 2.6.1 は Python 3.14 向けのビルド済み wheel がないため、Python 3.12 が見つかれば優先的に使用します。
+```
+./run.sh
+```
+
+手動でセットアップする場合は以下の手順です。
+
+3. Python仮想環境の作成と有効化
 ```
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-3. 依存パッケージのインストールと実行
+4. 依存パッケージのインストールと実行
 ```
 pip install -r requirements.txt
 python main.py
